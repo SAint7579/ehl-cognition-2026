@@ -8,7 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .candidates import analyze_candidates
+from .candidates import (
+    ACTIVITY_OBJECTIVE,
+    STABILITY_OBJECTIVE,
+    analyze_candidates,
+)
 from .models import (
     CandidateSitesArtifact,
     ConstraintRecord,
@@ -80,9 +84,9 @@ def run_investigation(
     candidate_artifact: CandidateSitesArtifact | None = None
     failed = False
 
+    stage_started = datetime.now(timezone.utc)
+    stage_clock = time.perf_counter()
     try:
-        stage_started = datetime.now(timezone.utc)
-        stage_clock = time.perf_counter()
         sequence_run = run_pipeline(target_path, database_path, out_dir / "sequence", threads)
         sequence_artifact_paths = [
             f"sequence/{path}"
@@ -110,9 +114,9 @@ def run_investigation(
         failed = True
 
     if not failed:
+        stage_started = datetime.now(timezone.utc)
+        stage_clock = time.perf_counter()
         try:
-            stage_started = datetime.now(timezone.utc)
-            stage_clock = time.perf_counter()
             structure_out = out_dir / "structure"
             structure_summary, residue_annotations = analyze_structure(
                 structure_path,
@@ -143,9 +147,9 @@ def run_investigation(
             failed = True
 
     if not failed:
+        stage_started = datetime.now(timezone.utc)
+        stage_clock = time.perf_counter()
         try:
-            stage_started = datetime.now(timezone.utc)
-            stage_clock = time.perf_counter()
             candidates_out = out_dir / "candidates"
             candidate_artifact = analyze_candidates(
                 out_dir / "structure" / "residue_annotations.json",
@@ -156,13 +160,9 @@ def run_investigation(
                 catalytic_residue,
                 catalytic_atom,
                 exclude,
-                max(1, len(residue_annotations.annotations)),
             )
             candidate_path = candidates_out / "candidate_sites.json"
             write_json_model(candidate_path, candidate_artifact)
-            candidate_artifact = CandidateSitesArtifact.model_validate_json(
-                candidate_path.read_text(encoding="utf-8")
-            )
             stages.append(
                 _completed_stage(
                     "candidates",
@@ -359,8 +359,8 @@ def _shortlists(
     artifact: CandidateSitesArtifact | None, top_n: int
 ) -> dict[str, FinalResultShortlist]:
     defaults = {
-        "activity": "Substrate-cleft engineering",
-        "stability": "Surface engineering away from the active site",
+        "activity": ACTIVITY_OBJECTIVE,
+        "stability": STABILITY_OBJECTIVE,
     }
     return {
         name: FinalResultShortlist(

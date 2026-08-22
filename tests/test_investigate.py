@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -15,6 +16,16 @@ DATABASE = ROOT / "fixtures/homolog_db.fasta"
 STRUCTURE = ROOT / "fixtures/structures/6EQE.pdb.gz"
 REFERENCES = ROOT / "fixtures/structures"
 PLAYBOOK = ROOT / "playbooks/protein_engineering_v1.md"
+VOLATILE_PROVENANCE_KEYS = {
+    "argv",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "input_files",
+    "output_files",
+    "stdout",
+    "stderr",
+}
 
 
 def _args(out: Path, top: int = 10, extra: list[str] | None = None) -> list[str]:
@@ -46,6 +57,17 @@ def _args(out: Path, top: int = 10, extra: list[str] | None = None) -> list[str]
 
 def _load_result(out: Path) -> dict:
     return json.loads((out / "final_result.json").read_text(encoding="utf-8"))
+
+
+def _without_volatile_provenance(document: dict) -> dict:
+    stable = deepcopy(document)
+    provenance = stable.get("provenance")
+    records = provenance if isinstance(provenance, list) else [provenance]
+    for record in records:
+        if isinstance(record, dict):
+            for key in VOLATILE_PROVENANCE_KEYS:
+                record.pop(key, None)
+    return stable
 
 
 def test_investigate_success_schema_digests_and_standalone_equivalence(
@@ -102,7 +124,6 @@ def test_investigate_success_schema_digests_and_standalone_equivalence(
         160,
         "OG",
         (160, 206, 237),
-        len(annotations.annotations),
     )
     write_json_model(candidates_out / "candidate_sites.json", candidate)
     orchestrated_candidate = json.loads(
@@ -111,15 +132,17 @@ def test_investigate_success_schema_digests_and_standalone_equivalence(
     standalone_candidate = json.loads(
         (candidates_out / "candidate_sites.json").read_text()
     )
-    assert orchestrated_candidate["shortlists"] == standalone_candidate["shortlists"]
+    assert _without_volatile_provenance(orchestrated_candidate) == (
+        _without_volatile_provenance(standalone_candidate)
+    )
     orchestrated_structure = json.loads(
         (out / "structure/structure_summary.json").read_text()
     )
     standalone_structure = json.loads(
         (structure_out / "structure_summary.json").read_text()
     )
-    assert orchestrated_structure["numbering"]["mapping_quality"] == (
-        standalone_structure["numbering"]["mapping_quality"]
+    assert _without_volatile_provenance(orchestrated_structure) == (
+        _without_volatile_provenance(standalone_structure)
     )
 
 

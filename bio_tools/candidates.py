@@ -38,6 +38,8 @@ LIMITATIONS = [
     "The rankings carry no effect estimate and are not experimental validation.",
     "Substitution options are observed homolog alignment residues, not predictions, recommendations, or beneficial effects.",
 ]
+ACTIVITY_OBJECTIVE = "Substrate-cleft engineering"
+STABILITY_OBJECTIVE = "Surface engineering away from the active site"
 
 ACTIVITY_WEIGHTS = {
     "proximity": 0.50,
@@ -298,7 +300,7 @@ def analyze_candidates(
         score_definitions=SCORE_DEFINITIONS,
         shortlists={
             "activity": CandidateShortlist(
-                objective="Substrate-cleft engineering",
+                objective=ACTIVITY_OBJECTIVE,
                 filters={
                     "distance_to_active_site_angstrom": "<= 12.0",
                     "conservation": "< 0.98",
@@ -310,7 +312,7 @@ def analyze_candidates(
                 sites=activity_sites,
             ),
             "stability": CandidateShortlist(
-                objective="Surface engineering away from the active site",
+                objective=STABILITY_OBJECTIVE,
                 filters={
                     "distance_to_active_site_angstrom": ">= 12.0",
                     "conservation": "< 0.90",
