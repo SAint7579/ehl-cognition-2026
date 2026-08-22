@@ -239,17 +239,38 @@ def analyze_structure(
         "rsa_scale": "Sander",
         "rsa_formula": "acc / residue_max_acc['Sander'][RESNAME3]",
     }
-    dssp_provenance = run_tool(
-        "dssp",
-        "mkdssp",
-        ["mkdssp", "--output-format", "dssp", str(pdb_path), str(dssp_path)],
-        dssp_parameters,
-        [pdb_path],
-        [dssp_path],
-    )
-    if dssp_provenance.exit_code != 0:
-        raise RuntimeError(f"mkdssp failed: {dssp_provenance.stderr.strip()}")
-    dssp_data, _ = make_dssp_dict(str(dssp_path))
+    try:
+        dssp_provenance = run_tool(
+            "dssp",
+            "mkdssp",
+            ["mkdssp", "--output-format", "dssp", str(pdb_path), str(dssp_path)],
+            dssp_parameters,
+            [pdb_path],
+            [dssp_path],
+        )
+    except OSError as error:
+        dssp_provenance = None
+        warnings.append(
+            StructureWarning(
+                code="DSSP_FAILED",
+                message=f"mkdssp could not be started ({error}). Secondary structure and RSA are omitted.",
+                severity="WARNING",
+            )
+        )
+    dssp_data: dict[tuple[str, tuple[str, int, str]], tuple[object, ...]] = {}
+    if dssp_provenance is not None and dssp_provenance.exit_code == 0 and dssp_path.exists():
+        dssp_data, _ = make_dssp_dict(str(dssp_path))
+    elif dssp_provenance is not None:
+        detail = (dssp_provenance.stderr or dssp_provenance.stdout or "").strip()
+        if not detail:
+            detail = f"exit {dssp_provenance.exit_code} with no output (crash)"
+        warnings.append(
+            StructureWarning(
+                code="DSSP_FAILED",
+                message=f"mkdssp failed: {detail}. Secondary structure and RSA are omitted.",
+                severity="WARNING",
+            )
+        )
     annotations, dssp_warnings = _annotate_residues(
         residues, mapping, chain_id, dssp_data, target_sequence, msa_by_target
     )
@@ -540,7 +561,7 @@ def _annotate_residues(
             )
         )
     warnings = []
-    if missing:
+    if missing and dssp_data:
         warnings.append(
             StructureWarning(
                 code="ABSENT_FROM_DSSP",
