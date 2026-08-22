@@ -3,7 +3,6 @@ import {
   artifactUrl,
   createJob,
   getHealth,
-  getJob,
   harvestJob,
   listJobs,
   loadConservation,
@@ -17,6 +16,7 @@ import {
   watchJob,
 } from "./api";
 import { isStatusLine, visibleMessages } from "./chat";
+import { InvestigationFlow } from "./InvestigationFlow";
 import { Markdown } from "./Markdown";
 import { StructureViewer } from "./StructureViewer";
 import type {
@@ -74,7 +74,6 @@ export function App() {
   const [focusResidue, setFocusResidue] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [clock, setClock] = useState(Date.now());
-  const threadRef = useRef<HTMLDivElement>(null);
   const restored = useRef<string | null>(null);
   const composing = useRef(false);
   const artifactSig = useRef<string>("");
@@ -171,11 +170,6 @@ export function App() {
     }
   }, [job]);
 
-  useEffect(() => {
-    const node = threadRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [job?.messages.length, job?.messages.at(-1)?.body, job?.status]);
-
   const triad = useMemo(() => {
     const pdb = (structure?.deposition?.pdb_id ?? structure?.structure_id ?? "").toUpperCase();
     if (!PETASE_STRUCTURES.has(pdb)) return [];
@@ -190,10 +184,6 @@ export function App() {
   const elapsed = job && working
     ? Math.max(0, Math.floor((clock - workStartedAt(job)) / 1000))
     : 0;
-  const liveEvents = (job?.events ?? [])
-    .filter((event) => event.type === "stage.started" || event.type === "artifact.ready")
-    .slice(-4);
-
   async function onStart(event: FormEvent) {
     event.preventDefault();
     if (starting) return;
@@ -306,59 +296,73 @@ export function App() {
             </p>
           </div>
         </header>
-        <div className="thread" ref={threadRef}>
-          <div className="bubble you">
-            <div className="who">You</div>
-            <Markdown>{job.objective}</Markdown>
-          </div>
-          {turns.map((turn, index) => {
-            const status = turn.speaker !== "user" && isStatusLine(turn.body);
-            const streaming = working && index === turns.length - 1 && turn.speaker !== "user";
-            return (
-              <div
-                className={`bubble ${turn.speaker === "user" ? "you" : "devin"}${status ? " status-line" : ""}${streaming ? " streaming" : ""}`}
-                key={turn.id}
-              >
-                <div className="who">{status ? "Working" : turn.speaker === "user" ? "You" : "Devin"}</div>
-                <Markdown>{turn.body}</Markdown>
-                {streaming ? (
-                  <div className="typing">
-                    <span />
-                    <span />
-                    <span />
+        <div className="investigation-body">
+          <InvestigationFlow key={job.id} job={job} working={working} />
+          <section className="worklog-panel" aria-label="Live Devin worklog">
+            <header className="worklog-heading">
+              <div>
+                <p className="eyebrow">Live worklog</p>
+                <h2>Devin output</h2>
+              </div>
+              {working ? (
+                <span className="streaming-label">
+                  <span />
+                  Streaming
+                </span>
+              ) : null}
+            </header>
+            <div className="worklog-stream" aria-live="polite" aria-relevant="additions text">
+              <article className="worklog-entry user-entry">
+                <div className="worklog-meta">
+                  <span>You</span>
+                  <time>{formatClock(job.created_at)}</time>
+                </div>
+                <Markdown>{job.objective}</Markdown>
+              </article>
+              {turns.map((turn, index) => {
+                const status = turn.speaker !== "user" && isStatusLine(turn.body);
+                const streaming = working && index === turns.length - 1 && turn.speaker !== "user";
+                return (
+                  <article
+                    className={`worklog-entry ${turn.speaker === "user" ? "user-entry" : ""}${status ? " status-entry" : ""}`}
+                    key={turn.id}
+                  >
+                    <div className="worklog-meta">
+                      <span>{status ? "Progress" : turn.speaker === "user" ? "You" : stageName(turn.stage)}</span>
+                      <time>{formatClock(turn.created_at)}</time>
+                    </div>
+                    <Markdown>{turn.body}</Markdown>
+                    {streaming ? <span className="stream-caret" aria-label="Content is streaming" /> : null}
+                  </article>
+                );
+              })}
+              {awaitingConfirm ? (
+                <article className="worklog-entry confirm-entry">
+                  <div className="worklog-meta">
+                    <span>Approval needed</span>
                   </div>
-                ) : null}
-              </div>
-            );
-          })}
-          {awaitingConfirm ? (
-            <div className="bubble devin confirm">
-              <div className="who">Devin</div>
-              <p>Confirm the next step to continue. This prompt is only in the Devin app unless you answer here.</p>
-              <button type="button" className="confirm-go" onClick={() => void onSendText("Yes, proceed with the next step.")}>
-                Yes, proceed
-              </button>
+                  <p>Confirm the next step to continue this investigation.</p>
+                  <button
+                    type="button"
+                    className="confirm-go"
+                    onClick={() => void onSendText("Yes, proceed with the next step.")}
+                  >
+                    Yes, proceed
+                  </button>
+                </article>
+              ) : null}
+              {working && !turns.length ? (
+                <article className="worklog-entry status-entry">
+                  <div className="worklog-meta">
+                    <span>{stageName(job.active_stage)}</span>
+                    <time>{formatElapsed(elapsed)}</time>
+                  </div>
+                  <p>The first worklog entry will appear here as Devin generates it.</p>
+                  <span className="stream-caret" aria-label="Waiting for streamed content" />
+                </article>
+              ) : null}
             </div>
-          ) : null}
-          {working ? (
-            <div className="bubble devin progress">
-              <div className="who">Working</div>
-              {liveEvents.length ? (
-                <ul className="progress-list">
-                  {liveEvents.map((event) => (
-                    <li key={event.id}>{event.message}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="progress-now">Sandbox is starting…</p>
-              )}
-              <div className="typing">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-          ) : null}
+          </section>
         </div>
         <form className="composer" onSubmit={onSend}>
           <textarea
@@ -459,6 +463,18 @@ function formatElapsed(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
+function formatClock(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf())
+    ? ""
+    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function stageName(stage: string | null): string {
+  const label = STAGE_LABEL[stage ?? ""] ?? "Devin";
+  return label.replace(/…$/, "");
 }
 
 function upsert(jobs: Job[], next: Job): Job[] {

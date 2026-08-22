@@ -131,7 +131,10 @@ async def stream_events(job_id: str) -> StreamingResponse:
             payload = public.model_dump(mode="json")
             bodies = ":".join(str(len(item.body)) for item in public.messages)
             files = ":".join(f"{item.filename}:{item.bytes}" for item in public.artifacts)
-            signature = f"{public.status.value}:{public.active_stage}:{bodies}:{files}"
+            events = ":".join(
+                f"{item.id}:{item.type}:{len(item.message)}" for item in public.events
+            )
+            signature = f"{public.status.value}:{public.active_stage}:{bodies}:{events}:{files}"
             if signature != last:
                 yield f"data: {json.dumps({'type': 'job', 'job': payload})}\n\n"
                 last = signature
