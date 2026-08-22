@@ -7,12 +7,15 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, TypeVar, cast
+
+from pydantic import BaseModel
 
 from .models import FileDigest, ProvenanceRecord
 from .versions import tool_version
 
 OUTPUT_CAP = 8192
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def file_digest(path: Path | str) -> FileDigest:
@@ -64,3 +67,16 @@ def run_tool(
         stdout=(completed.stdout or "")[-OUTPUT_CAP:],
         stderr=(completed.stderr or "")[-OUTPUT_CAP:],
     )
+
+
+def write_json_model(path: Path | str, model: ModelT) -> ModelT:
+    """Write a validated model and finalize an in-process output digest."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    provenance = getattr(model, "provenance", None)
+    if isinstance(provenance, ProvenanceRecord) and not provenance.output_files:
+        finalized = provenance.model_copy(update={"output_files": [file_digest(path)]})
+        model = cast(ModelT, model.model_copy(update={"provenance": finalized}))
+        path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return model

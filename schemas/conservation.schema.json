@@ -194,11 +194,19 @@
       "additionalProperties": false,
       "properties": {
         "argv": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Argv",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Argv"
         },
         "duration_seconds": {
           "title": "Duration Seconds",
@@ -220,8 +228,16 @@
           "type": "string"
         },
         "exit_code": {
-          "title": "Exit Code",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
         },
         "input_files": {
           "items": {
@@ -274,14 +290,12 @@
         "stage",
         "tool_name",
         "tool_version",
-        "argv",
         "parameters",
         "input_files",
         "output_files",
         "started_at",
         "ended_at",
         "duration_seconds",
-        "exit_code",
         "evidence_type"
       ],
       "title": "ProvenanceRecord",
@@ -334,15 +348,7 @@
       "type": "array"
     },
     "provenance": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ProvenanceRecord"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/ProvenanceRecord"
     },
     "schema_version": {
       "default": "1.0.0",
@@ -368,7 +374,8 @@
     "target_id",
     "columns",
     "top_conserved_positions",
-    "summary"
+    "summary",
+    "provenance"
   ],
   "schema_version": "1.0.0",
   "title": "ConservationArtifact",

@@ -25,14 +25,14 @@ class ProvenanceRecord(StrictModel):
     stage: str
     tool_name: str
     tool_version: str
-    argv: list[str]
+    argv: list[str] | None = None
     parameters: dict[str, Any]
     input_files: list[FileDigest]
     output_files: list[FileDigest]
     started_at: datetime
     ended_at: datetime
     duration_seconds: float
-    exit_code: int
+    exit_code: int | None = None
     evidence_type: Literal["KNOWN", "CALCULATED", "PREDICTED", "EXPERIMENTAL"]
     stdout: str = ""
     stderr: str = ""
@@ -43,7 +43,9 @@ class HomologHit(StrictModel):
     description: str
     evalue: float
     bit_score: float
-    percent_identity: float
+    percent_identity: float = Field(
+        description="Pairwise identity as a percentage on a 0-100 scale."
+    )
     alignment_length: int
     query_coverage: float
     target_coverage: float
@@ -118,7 +120,7 @@ class ConservationArtifact(StrictModel):
     columns: list[ConservationColumn]
     top_conserved_positions: list[TopConservedPosition]
     summary: ConservationSummary
-    provenance: ProvenanceRecord | None = None
+    provenance: ProvenanceRecord
 
 
 class StageArtifact(StrictModel):

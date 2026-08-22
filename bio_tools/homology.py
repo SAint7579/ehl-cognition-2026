@@ -1,8 +1,13 @@
-"""MMseqs2 homolog search and hit artifact generation."""
+"""MMseqs2 homolog search and hit artifact generation.
+
+MMseqs2 reports ``fident`` as a fraction from 0 to 1; artifacts expose it as
+``percent_identity`` on the conventional 0-100 scale.
+"""
 
 from __future__ import annotations
 
 import os
+import shutil
 import statistics
 from pathlib import Path
 
@@ -54,7 +59,7 @@ def parse_m8(path: Path | str, records: dict[str, SeqRecord]) -> list[HomologHit
                 description=description_without_id(target_record),
                 evalue=float(evalue),
                 bit_score=float(bits),
-                percent_identity=float(fident),
+                percent_identity=float(fident) * 100,
                 alignment_length=int(alnlen),
                 query_coverage=(int(qend) - int(qstart) + 1) / query_length,
                 target_coverage=(int(tend) - int(tstart) + 1) / hit_length,
@@ -120,6 +125,8 @@ def run_homolog_search(
     if provenance.exit_code != 0:
         raise RuntimeError(f"mmseqs homolog search failed: {provenance.stderr.strip()}")
     hits = parse_m8(m8_path, records)
+    # Keep the temporary directory on subprocess failure for debugging.
+    shutil.rmtree(tmp_dir)
     hit_records = [records[hit.accession] for hit in hits if hit.accession in records]
     target_record = records.get(target_key, target)
     if target_record.id not in {record.id for record in hit_records}:

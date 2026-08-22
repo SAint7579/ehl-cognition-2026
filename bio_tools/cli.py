@@ -5,11 +5,17 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from .conservation import analyze_alignment
 from .homology import run_homolog_search
 from .msa import run_msa
 from .pipeline import run_pipeline
+from .provenance import write_json_model
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -68,9 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _write(path: Path, model: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")  # type: ignore[attr-defined]
+def _write(path: Path, model: ModelT) -> ModelT:
+    return write_json_model(path, model)
 
 
 if __name__ == "__main__":

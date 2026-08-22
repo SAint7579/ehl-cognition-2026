@@ -5,19 +5,21 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from .conservation import analyze_alignment
 from .homology import run_homolog_search
 from .models import (
-    ConservationArtifact,
-    FileDigest,
-    ProvenanceRecord,
     RunArtifact,
     StageArtifact,
 )
 from .msa import run_msa
-from .provenance import file_digest
+from .provenance import file_digest, write_json_model
 from .versions import environment_block
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def run_pipeline(
@@ -39,11 +41,10 @@ def run_pipeline(
     alignment = run_msa(out_dir / "homologs.fasta", alignment_path, threads)
     _write_json(msa_json, alignment)
     conservation_json = out_dir / "conservation.json"
-    conservation = analyze_alignment(alignment_path, alignment.target_row_id)
-    conservation = conservation.model_copy(
-        update={"provenance": _python_provenance(alignment_path, conservation_json)}
+    conservation = _write_json(
+        conservation_json,
+        analyze_alignment(alignment_path, alignment.target_row_id),
     )
-    _write_json(conservation_json, conservation)
     ended = datetime.now(timezone.utc)
     run = RunArtifact(
         pipeline_version="0.1.0",
@@ -68,7 +69,7 @@ def run_pipeline(
                 stage="conservation",
                 status="COMPLETED",
                 artifact_paths=["conservation.json"],
-                provenance=[conservation.provenance],  # type: ignore[list-item]
+                provenance=[conservation.provenance],
             ),
         ],
         environment=environment_block(),
@@ -81,23 +82,5 @@ def run_pipeline(
     return run
 
 
-def _write_json(path: Path, model: object) -> None:
-    path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")  # type: ignore[attr-defined]
-
-
-def _python_provenance(input_path: Path, output_path: Path) -> ProvenanceRecord:
-    now = datetime.now(timezone.utc)
-    return ProvenanceRecord(
-        stage="conservation",
-        tool_name="python-conservation",
-        tool_version="0.1.0",
-        argv=["python", "-m", "bio_tools.conservation"],
-        parameters={"math": "Shannon entropy base 2 over non-gap residues"},
-        input_files=[file_digest(input_path)],
-        output_files=[file_digest(output_path)] if output_path.exists() else [],
-        started_at=now,
-        ended_at=now,
-        duration_seconds=0.0,
-        exit_code=0,
-        evidence_type="CALCULATED",
-    )
+def _write_json(path: Path, model: ModelT) -> ModelT:
+    return write_json_model(path, model)

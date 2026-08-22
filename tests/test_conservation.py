@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pytest
@@ -19,10 +20,10 @@ def test_conservation_math_cases(tmp_path: Path) -> None:
     assert identical.entropy == pytest.approx(0.0)
 
     half = analyze_alignment(
-        write_alignment(tmp_path, [("target", "A"), ("a", "A"), ("b", "B"), ("c", "B")]), "target"
+        write_alignment(tmp_path, [("target", "A"), ("a", "A"), ("b", "C"), ("c", "C")]), "target"
     ).columns[0]
     assert half.entropy == pytest.approx(1.0)
-    assert half.conservation == pytest.approx(1 - 1 / __import__("math").log2(20))
+    assert half.conservation == pytest.approx(1 - 1 / math.log2(20))
 
     uniform = analyze_alignment(
         write_alignment(

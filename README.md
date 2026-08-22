@@ -11,6 +11,8 @@ Install the project into the supplied environment with
 artifacts (`homolog_search.json`, `alignment.json`, `conservation.json`, and
 `run.json`) next to the intermediate FASTA files. Each artifact has a
 committed JSON Schema under `schemas/` and includes tool/file provenance.
+MMseqs2 percent identity is reported on a 0-100 scale. The MMseqs2 and MAFFT
+parameters used for each run are recorded in its provenance.
 
 Evidence is labeled `KNOWN` for the pinned UniProt fixture/database
 sequences, `CALCULATED` for direct MMseqs2/MAFFT/conservation output, and
