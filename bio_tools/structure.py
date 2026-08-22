@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import gzip
-import re
+import json
 import shutil
 import time
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable
 
-from Bio import AlignIO
 from Bio.Align import PairwiseAligner, substitution_matrices
 from Bio.Data.PDBData import protein_letters_3to1
 from Bio.PDB import PDBParser, is_aa
@@ -21,6 +22,7 @@ from . import __version__
 from .fasta_io import validate_target
 from .models import (
     FoldseekHit,
+    MappingQuality,
     NumberingException,
     NumberingSummary,
     ProvenanceRecord,
@@ -33,7 +35,6 @@ from .models import (
     StructureWarning,
 )
 from .provenance import file_digest, run_tool
-from .versions import tool_version
 
 FOLDSEEK_COLUMNS = (
     "query,target,fident,alnlen,qstart,qend,tstart,tend,evalue,bits,"
@@ -44,6 +45,36 @@ LIMITATIONS = [
     "DSSP, Foldseek, sequence mapping, and annotations are CALCULATED evidence.",
     "None of these structural results constitute experimental validation.",
 ]
+MAPPING_IDENTITY_THRESHOLD = 0.9
+
+
+@dataclass(frozen=True)
+class StructureResidue:
+    author_residue: int
+    insertion_code: str | None
+    resname: str
+    one_letter: str
+    altloc_present: bool
+
+
+@dataclass(frozen=True)
+class AnnotationData:
+    structure_index: int
+    author_residue: int
+    insertion_code: str | None
+    resname: str
+    one_letter: str
+    altloc_present: bool
+    target_position: int | None
+    target_residue: str | None
+    msa_column: int | None
+    conservation: float | None
+    gap_fraction: float | None
+    entropy: float | None
+    dssp_8state: str | None
+    secondary_structure: str | None
+    acc: float | None
+    rsa: float | None
 
 
 def analyze_structure(
@@ -56,6 +87,7 @@ def analyze_structure(
     threads: int | None = None,
 ) -> tuple[StructureSummaryArtifact, ResidueAnnotationsArtifact]:
     structure_path = Path(structure_path).resolve()
+    original_structure_path = structure_path
     target_path = Path(target_path).resolve()
     out_dir = Path(out_dir).resolve()
     references_dir = Path(references_dir).resolve()
@@ -70,6 +102,37 @@ def analyze_structure(
     mapping_clock = time.perf_counter()
     mapping, alignment_parameters = _map_to_target(structure_sequence, target_sequence)
     mapping_ended = datetime.now(timezone.utc)
+    mapped_pairs = [
+        (residue, target_position)
+        for residue, target_position in zip(residues, mapping)
+        if target_position is not None
+    ]
+    mapped_positions = len(mapped_pairs)
+    identity_fraction = (
+        sum(residue.one_letter == target_sequence[target_position - 1]
+            for residue, target_position in mapped_pairs)
+        / mapped_positions
+        if mapped_positions
+        else 0.0
+    )
+    alignment_parameters.update(
+        {
+            "mapped_positions": mapped_positions,
+            "identity_fraction": identity_fraction,
+            "identity_threshold": MAPPING_IDENTITY_THRESHOLD,
+        }
+    )
+    if identity_fraction < MAPPING_IDENTITY_THRESHOLD:
+        warnings.append(
+            StructureWarning(
+                code="LOW_MAPPING_IDENTITY",
+                message=(
+                    f"Only {identity_fraction:.3f} of mapped residues match the target; "
+                    f"threshold is {MAPPING_IDENTITY_THRESHOLD:.3f}."
+                ),
+                severity="HIGH",
+            )
+        )
     mapping_provenance = ProvenanceRecord(
         stage="structure-mapping",
         tool_name="bio_tools.structure",
@@ -108,17 +171,27 @@ def analyze_structure(
     numbering_exceptions: list[NumberingException] = []
     for index, residue in enumerate(residues, start=1):
         target_position = mapping[index - 1]
-        if target_position != residue["author_residue"] or residue["insertion_code"] is not None:
+        residue_mismatch = (
+            target_position is not None
+            and residue.one_letter != target_sequence[target_position - 1]
+        )
+        if (
+            target_position != residue.author_residue
+            or residue.insertion_code is not None
+            or residue_mismatch
+        ):
             numbering_exceptions.append(
                 NumberingException(
                     structure_index=index,
-                    author_residue=residue["author_residue"],
-                    insertion_code=residue["insertion_code"],
+                    author_residue=residue.author_residue,
+                    insertion_code=residue.insertion_code,
                     target_position=target_position,
                     reason=(
                         "author numbering differs from target position"
-                        if target_position != residue["author_residue"]
+                        if target_position != residue.author_residue
                         else "insertion code present"
+                        if residue.insertion_code is not None
+                        else "structure residue differs from mapped target residue"
                     ),
                 )
             )
@@ -126,12 +199,18 @@ def analyze_structure(
         author_numbering_matches_target=all(
             target_position is None
             or (
-                target_position == residue["author_residue"]
-                and residue["insertion_code"] is None
+                target_position == residue.author_residue
+                and residue.insertion_code is None
+                and residue.one_letter == target_sequence[target_position - 1]
             )
             for residue, target_position in zip(residues, mapping)
         ),
         exceptions=numbering_exceptions,
+        mapping_quality=MappingQuality(
+            mapped_positions=mapped_positions,
+            identity_fraction=identity_fraction,
+            identity_threshold=MAPPING_IDENTITY_THRESHOLD,
+        ),
     )
     conservation = _load_conservation(conservation_path)
     if conservation is None:
@@ -179,7 +258,7 @@ def analyze_structure(
         path
         for path in references_dir.iterdir()
         if path.is_file() and path.name.endswith((".pdb", ".pdb.gz", ".cif", ".cif.gz"))
-        and path.name.split(".")[0].upper() != structure_path.name.split(".")[0].upper()
+        and path.resolve() != structure_path.resolve()
     )
     foldseek_references = out_dir / "foldseek_references"
     foldseek_references.mkdir(exist_ok=True)
@@ -214,27 +293,29 @@ def analyze_structure(
             "significance_threshold": 1e-3,
             "format_output": FOLDSEEK_COLUMNS.split(","),
             "query_coordinate_system": "structure_index",
+            "reference_staging": "symlinks in the run output foldseek_references directory",
         },
         [structure_path, *reference_files],
         [foldseek_path],
     )
     if foldseek_provenance.exit_code != 0:
         raise RuntimeError(f"Foldseek failed: {foldseek_provenance.stderr.strip()}")
-    if foldseek_provenance.exit_code == 0 and foldseek_tmp.exists():
+    if foldseek_tmp.exists():
         # Keep Foldseek temporary files on failure for debugging.
         shutil.rmtree(foldseek_tmp)
     foldseek_hits = _parse_foldseek(foldseek_path)
     reverse_index = [
         ReverseIndexEntry(
-            msa_column=annotation["msa_column"],
-            target_position=annotation["target_position"],
-            structure_index=annotation["structure_index"],
-            author_residue=annotation["author_residue"],
-            insertion_code=annotation["insertion_code"],
+            msa_column=annotation.msa_column,
+            target_position=annotation.target_position,
+            structure_index=annotation.structure_index,
+            author_residue=annotation.author_residue,
+            insertion_code=annotation.insertion_code,
         )
         for annotation in annotations
     ]
-    deposition = _deposition(structure_path, chain_id)
+    deposition, deposition_warnings = _deposition(original_structure_path, chain_id)
+    warnings.extend(deposition_warnings)
     summary = StructureSummaryArtifact(
         structure_id=structure_path.name.split(".")[0].upper(),
         chain=chain_id,
@@ -244,8 +325,8 @@ def analyze_structure(
         residue_counts={
             "target": len(target_sequence),
             "modelled_standard": len(residues),
-            "unmodelled_target": len(unmodelled),
-            "dssp_annotated": sum(item["dssp_8state"] is not None for item in annotations),
+            "unmodelled_target": _count_ranges(unmodelled),
+            "dssp_annotated": sum(item.dssp_8state is not None for item in annotations),
         },
         modelled_residue_count=len(residues),
         modelled_range=_modelled_range(residues),
@@ -261,7 +342,28 @@ def analyze_structure(
     annotation_artifact = ResidueAnnotationsArtifact(
         structure_id=summary.structure_id,
         chain=chain_id,
-        annotations=[ResidueAnnotation(**annotation) for annotation in annotations],
+        annotations=[
+            ResidueAnnotation(
+                structure_index=annotation.structure_index,
+                author_residue=annotation.author_residue,
+                insertion_code=annotation.insertion_code,
+                resname=annotation.resname,
+                one_letter=annotation.one_letter,
+                target_position=annotation.target_position,
+                target_residue=annotation.target_residue,
+                msa_column=annotation.msa_column,
+                conservation=annotation.conservation,
+                gap_fraction=annotation.gap_fraction,
+                entropy=annotation.entropy,
+                dssp_8state=annotation.dssp_8state,
+                secondary_structure=annotation.secondary_structure,
+                acc=annotation.acc,
+                rsa=annotation.rsa,
+                altloc_present=annotation.altloc_present,
+                evidence_type="CALCULATED",
+            )
+            for annotation in annotations
+        ],
         warnings=warnings,
         limitations=LIMITATIONS,
     )
@@ -279,15 +381,15 @@ def _decompress_structure(path: Path, out_dir: Path) -> Path:
 
 def _extract_residues(
     path: Path, chain_id: str
-) -> tuple[list[dict[str, object]], str, list[StructureWarning]]:
+) -> tuple[list[StructureResidue], str, list[StructureWarning]]:
     structure = PDBParser(QUIET=True).get_structure(path.stem, str(path))
     model = next(structure.get_models())
     if chain_id not in model:
         raise ValueError(f"chain {chain_id!r} not found in structure")
     chain = model[chain_id]
-    residues: list[dict[str, object]] = []
+    residues: list[StructureResidue] = []
     warning_details: dict[str, list[str]] = {}
-    previous_resseq: int | None = None
+    previous_author: tuple[int, str | None] | None = None
     for residue in chain:
         hetflag, resseq, insertion = residue.id
         insertion_code = insertion.strip() or None
@@ -300,11 +402,12 @@ def _extract_residues(
                 f"{residue.resname}:{resseq}{insertion_code or ''}"
             )
             continue
-        if previous_resseq is not None and resseq > previous_resseq + 1:
+        current_author = (resseq, insertion_code)
+        if previous_author is not None and _has_author_gap(previous_author, current_author):
             warning_details.setdefault("AUTHOR_NUMBERING_GAP", []).append(
-                f"{previous_resseq + 1}-{resseq - 1}"
+                f"{previous_author[0] + 1}-{resseq - 1}"
             )
-        previous_resseq = resseq
+        previous_author = current_author
         if insertion_code is not None:
             warning_details.setdefault("INSERTION_CODE", []).append(
                 f"{resseq}{insertion_code}"
@@ -318,19 +421,35 @@ def _extract_residues(
         except KeyError as error:
             raise ValueError(f"unsupported standard residue {residue.resname!r}") from error
         residues.append(
-            {
-                "author_residue": int(resseq),
-                "insertion_code": insertion_code,
-                "resname": residue.resname.upper(),
-                "one_letter": one_letter,
-                "altloc_present": altloc_present,
-            }
+            StructureResidue(
+                author_residue=int(resseq),
+                insertion_code=insertion_code,
+                resname=residue.resname.upper(),
+                one_letter=one_letter,
+                altloc_present=altloc_present,
+            )
         )
     warnings = [
         StructureWarning(code=code, message=_warning_message(code, values), severity="WARNING")
         for code, values in warning_details.items()
     ]
-    return residues, "".join(str(item["one_letter"]) for item in residues), warnings
+    return residues, "".join(item.one_letter for item in residues), warnings
+
+
+def _has_author_gap(
+    previous: tuple[int, str | None], current: tuple[int, str | None]
+) -> bool:
+    previous_resseq, previous_code = previous
+    current_resseq, current_code = current
+    if current_resseq > previous_resseq + 1:
+        return True
+    if current_resseq != previous_resseq:
+        return False
+    if previous_code is None or current_code is None:
+        return False
+    previous_rank = 0 if previous_code is None else ord(previous_code)
+    current_rank = 0 if current_code is None else ord(current_code)
+    return current_rank > previous_rank + 1
 
 
 def _select_altlocs(residue: Residue) -> None:
@@ -369,51 +488,52 @@ def _map_to_target(structure_sequence: str, target_sequence: str) -> tuple[list[
 def _load_conservation(path: Path | str | None) -> dict[str, object] | None:
     if path is None:
         return None
-    import json
-
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _annotate_residues(
-    residues: list[dict[str, object]],
+    residues: list[StructureResidue],
     mapping: list[int | None],
     chain_id: str,
     dssp_data: dict[tuple[str, tuple[str, int, str]], tuple[object, ...]],
     target_sequence: str,
     msa_by_target: dict[int, dict[str, object]],
-) -> tuple[list[dict[str, object]], list[StructureWarning]]:
-    annotations = []
-    missing = []
+) -> tuple[list[AnnotationData], list[StructureWarning]]:
+    annotations: list[AnnotationData] = []
+    missing: list[str] = []
     for index, (residue, target_position) in enumerate(zip(residues, mapping), start=1):
-        key = (chain_id, (" ", int(residue["author_residue"]), residue["insertion_code"] or " "))
+        key = (chain_id, (" ", residue.author_residue, residue.insertion_code or " "))
         dssp = dssp_data.get(key)
         if dssp is None:
-            missing.append(str(residue["author_residue"]))
+            missing.append(str(residue.author_residue))
         dssp_8state = str(dssp[1]) if dssp else None
         acc = float(dssp[2]) if dssp else None
         rsa = None
         if dssp is not None:
-            max_acc = residue_max_acc["Sander"][str(residue["resname"])]
-            rsa = acc / max_acc
+            max_acc = residue_max_acc["Sander"][residue.resname]
+            rsa = min(acc / max_acc, 1.0)
         msa_item = msa_by_target.get(target_position) if target_position is not None else None
         annotations.append(
-            {
-                "structure_index": index,
-                **residue,
-                "target_position": target_position,
-                "target_residue": (
+            AnnotationData(
+                structure_index=index,
+                author_residue=residue.author_residue,
+                insertion_code=residue.insertion_code,
+                resname=residue.resname,
+                one_letter=residue.one_letter,
+                altloc_present=residue.altloc_present,
+                target_position=target_position,
+                target_residue=(
                     target_sequence[target_position - 1] if target_position is not None else None
                 ),
-                "msa_column": msa_item["column"] if msa_item else None,
-                "conservation": msa_item["conservation"] if msa_item else None,
-                "gap_fraction": msa_item["gap_fraction"] if msa_item else None,
-                "entropy": msa_item["entropy"] if msa_item else None,
-                "dssp_8state": dssp_8state,
-                "secondary_structure": _simplify_secondary(dssp_8state),
-                "acc": acc,
-                "rsa": rsa,
-                "evidence_type": "CALCULATED",
-            }
+                msa_column=msa_item["column"] if msa_item else None,
+                conservation=msa_item["conservation"] if msa_item else None,
+                gap_fraction=msa_item["gap_fraction"] if msa_item else None,
+                entropy=msa_item["entropy"] if msa_item else None,
+                dssp_8state=dssp_8state,
+                secondary_structure=_simplify_secondary(dssp_8state),
+                acc=acc,
+                rsa=rsa,
+            )
         )
     warnings = []
     if missing:
@@ -421,15 +541,6 @@ def _annotate_residues(
             StructureWarning(
                 code="ABSENT_FROM_DSSP",
                 message=f"Modelled residues absent from DSSP output: {', '.join(missing)}.",
-                severity="WARNING",
-            )
-        )
-    high_rsa = [item["structure_index"] for item in annotations if item["rsa"] is not None and item["rsa"] > 1]
-    if high_rsa:
-        warnings.append(
-            StructureWarning(
-                code="RSA_ABOVE_ONE",
-                message=f"Relative solvent accessibility exceeds 1 at structure indices {high_rsa}.",
                 severity="WARNING",
             )
         )
@@ -487,12 +598,12 @@ def _parse_foldseek(path: Path) -> list[FoldseekHit]:
                 significant=float(evalue) <= 1e-3,
             )
         )
-    return hits
+    return sorted(hits, key=lambda item: (item.evalue, item.target))
 
 
-def _secondary_composition(annotations: list[dict[str, object]]) -> SecondaryStructureComposition:
-    eight = Counter(item["dssp_8state"] or "-" for item in annotations)
-    three = Counter(_simplify_secondary(item["dssp_8state"]) for item in annotations)
+def _secondary_composition(annotations: list[AnnotationData]) -> SecondaryStructureComposition:
+    eight = Counter(item.dssp_8state or "-" for item in annotations)
+    three = Counter(_simplify_secondary(item.dssp_8state) for item in annotations)
     total = len(annotations)
     return SecondaryStructureComposition(
         counts_8state=dict(sorted(eight.items())),
@@ -503,12 +614,12 @@ def _secondary_composition(annotations: list[dict[str, object]]) -> SecondaryStr
     )
 
 
-def _simplify_secondary(value: object) -> str:
+def _simplify_secondary(value: str | None) -> str:
     return "H" if value in {"H", "G", "I"} else "E" if value in {"E", "B"} else "C"
 
 
-def _ranges(values: object) -> list[str]:
-    ordered = sorted(int(value) for value in values)
+def _ranges(values: Iterable[int]) -> list[str]:
+    ordered = sorted(values)
     if not ordered:
         return []
     result = []
@@ -522,11 +633,18 @@ def _ranges(values: object) -> list[str]:
     return result
 
 
-def _modelled_range(residues: list[dict[str, object]]) -> str:
+def _count_ranges(ranges: list[str]) -> int:
+    return sum(
+        int(value.split("-")[-1]) - int(value.split("-")[0]) + 1
+        for value in ranges
+    )
+
+
+def _modelled_range(residues: list[StructureResidue]) -> str:
     if not residues:
         return ""
-    first = int(residues[0]["author_residue"])
-    last = int(residues[-1]["author_residue"])
+    first = residues[0].author_residue
+    last = residues[-1].author_residue
     return str(first) if first == last else f"{first}-{last}"
 
 
@@ -542,16 +660,31 @@ def _warning_message(code: str, values: list[str]) -> str:
     return messages.get(code, code) + (", ".join(values) if values else "")
 
 
-def _deposition(path: Path, chain: str) -> StructureDeposition:
-    import json
-
-    pdb_id = path.name.split(".")[0].upper()
+def _deposition(
+    path: Path, chain: str
+) -> tuple[StructureDeposition, list[StructureWarning]]:
+    raw = gzip.open(path, "rt", encoding="utf-8", errors="replace") if path.suffix == ".gz" else path.open(
+        encoding="utf-8", errors="replace"
+    )
+    with raw as handle:
+        header_lines = [line for line in handle if line.startswith("HEADER")]
+    pdb_id = ""
+    if header_lines:
+        pdb_id = header_lines[0][62:66].strip().upper()
+    if not pdb_id:
+        pdb_id = path.name.split(".")[0].upper()
     manifest_path = path.parent / "MANIFEST.json"
-    if path.name == "structure_input.pdb":
-        pdb_id = "6EQE"
-        manifest_path = Path(__file__).resolve().parents[1] / "fixtures" / "structures" / "MANIFEST.json"
     entries = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else []
     item = next((entry for entry in entries if entry["pdb_id"] == pdb_id), {})
+    warnings: list[StructureWarning] = []
+    if not item:
+        warnings.append(
+            StructureWarning(
+                code="DEPOSITION_METADATA_UNAVAILABLE",
+                message=f"No deposition manifest metadata found for structure {pdb_id}.",
+                severity="WARNING",
+            )
+        )
     return StructureDeposition(
         pdb_id=pdb_id,
         chain=chain,
@@ -559,4 +692,4 @@ def _deposition(path: Path, chain: str) -> StructureDeposition:
         experimental_method=item.get("experimental_method"),
         resolution_angstrom=item.get("resolution"),
         evidence_type="KNOWN",
-    )
+    ), warnings

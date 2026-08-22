@@ -146,7 +146,7 @@ class RunArtifact(StrictModel):
 class StructureWarning(StrictModel):
     code: str
     message: str
-    severity: Literal["INFO", "WARNING", "ERROR"]
+    severity: Literal["INFO", "WARNING", "HIGH", "ERROR"]
 
 
 class StructureDeposition(StrictModel):
@@ -195,9 +195,16 @@ class NumberingException(StrictModel):
     reason: str
 
 
+class MappingQuality(StrictModel):
+    mapped_positions: int
+    identity_fraction: float
+    identity_threshold: float
+
+
 class NumberingSummary(StrictModel):
     author_numbering_matches_target: bool
     exceptions: list[NumberingException]
+    mapping_quality: MappingQuality
 
 
 class ReverseIndexEntry(StrictModel):

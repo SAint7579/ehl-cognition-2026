@@ -124,6 +124,30 @@
       "title": "FoldseekHit",
       "type": "object"
     },
+    "MappingQuality": {
+      "additionalProperties": false,
+      "properties": {
+        "identity_fraction": {
+          "title": "Identity Fraction",
+          "type": "number"
+        },
+        "identity_threshold": {
+          "title": "Identity Threshold",
+          "type": "number"
+        },
+        "mapped_positions": {
+          "title": "Mapped Positions",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mapped_positions",
+        "identity_fraction",
+        "identity_threshold"
+      ],
+      "title": "MappingQuality",
+      "type": "object"
+    },
     "NumberingException": {
       "additionalProperties": false,
       "properties": {
@@ -185,11 +209,15 @@
           },
           "title": "Exceptions",
           "type": "array"
+        },
+        "mapping_quality": {
+          "$ref": "#/$defs/MappingQuality"
         }
       },
       "required": [
         "author_numbering_matches_target",
-        "exceptions"
+        "exceptions",
+        "mapping_quality"
       ],
       "title": "NumberingSummary",
       "type": "object"
@@ -482,6 +510,7 @@
           "enum": [
             "INFO",
             "WARNING",
+            "HIGH",
             "ERROR"
           ],
           "title": "Severity",

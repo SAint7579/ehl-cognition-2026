@@ -187,6 +187,7 @@
           "enum": [
             "INFO",
             "WARNING",
+            "HIGH",
             "ERROR"
           ],
           "title": "Severity",

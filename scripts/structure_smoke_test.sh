@@ -41,8 +41,9 @@ annotations = json.loads((out / "residue_annotations.json").read_text())["annota
 for author_residue in (160, 206, 237):
     item = next(row for row in annotations if row["author_residue"] == author_residue)
     column = by_position[item["target_position"]]
+    assert item["msa_column"] == column["column"]
     print(
         f"{author_residue} -> {item['target_position']} -> "
-        f"{column['column']} -> {column['conservation']}"
+        f"{item['msa_column']} -> {item['conservation']}"
     )
 PY
