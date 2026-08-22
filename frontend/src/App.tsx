@@ -322,13 +322,24 @@ export function App() {
               {turns.map((turn, index) => {
                 const status = turn.speaker !== "user" && isStatusLine(turn.body);
                 const streaming = working && index === turns.length - 1 && turn.speaker !== "user";
+                const followUpAnswer =
+                  turn.speaker !== "user" &&
+                  turns.slice(0, index).some((message) => message.speaker === "user");
                 return (
                   <article
                     className={`worklog-entry ${turn.speaker === "user" ? "user-entry" : ""}${status ? " status-entry" : ""}`}
                     key={turn.id}
                   >
                     <div className="worklog-meta">
-                      <span>{status ? "Progress" : turn.speaker === "user" ? "You" : stageName(turn.stage)}</span>
+                      <span>
+                        {status
+                          ? "Progress"
+                          : turn.speaker === "user"
+                            ? "You"
+                            : followUpAnswer
+                              ? "Answer"
+                              : stageName(turn.stage)}
+                      </span>
                       <time>{formatClock(turn.created_at)}</time>
                     </div>
                     <Markdown>{turn.body}</Markdown>

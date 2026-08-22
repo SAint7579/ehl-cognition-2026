@@ -30,6 +30,7 @@ const STAGE_META: Record<string, { title: string; short: string }> = {
   rank: { title: "Rank candidate sites", short: "Candidates" },
   review: { title: "Review findings", short: "Review" },
   "follow-up": { title: "Handle follow-up", short: "Follow-up" },
+  answer: { title: "Answer the follow-up", short: "Answer" },
   import: { title: "Import outputs", short: "Import" },
   waiting_for_user: { title: "Wait for input", short: "Input" },
   waiting_for_approval: { title: "Wait for approval", short: "Approval" },
@@ -194,9 +195,11 @@ function buildFlow(job: Job): FlowStep[] {
   const steps = [root];
   let current: FlowStep | null = null;
   let sequence = 0;
+  let handlingFollowUp = false;
 
   for (const entry of entries) {
     if (entry.kind === "message" && entry.message.speaker === "user") {
+      handlingFollowUp = true;
       sequence += 1;
       current = {
         id: `request-${sequence}-${entry.message.id}`,
@@ -212,7 +215,9 @@ function buildFlow(job: Job): FlowStep[] {
     }
 
     const stage = entry.kind === "message"
-      ? entry.message.stage ?? stageForSpeaker(entry.message.speaker)
+      ? handlingFollowUp
+        ? "answer"
+        : entry.message.stage ?? stageForSpeaker(entry.message.speaker)
       : eventStage(entry.event);
     const resultEvent =
       entry.kind === "event" &&
