@@ -5,7 +5,8 @@ import threading
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from backend.app.models import Event, Job, JobStatus, Message, Speaker
+from backend.app.capabilities import resolve_capabilities
+from backend.app.models import Event, Job, JobStatus, Message, ResearchCapability, Speaker
 from backend.app.settings import settings
 
 
@@ -24,12 +25,28 @@ class JobStore:
                 job = Job.model_validate_json(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
+            if not job.capabilities:
+                job = job.model_copy(
+                    update={
+                        "capabilities": resolve_capabilities(
+                            job.objective,
+                            [],
+                            job.include_structure,
+                        )
+                    }
+                )
             loaded[job.id] = job
         with self._lock:
             self._jobs.update(loaded)
         self._restore_last_session()
 
-    def create(self, objective: str, title: str | None, include_structure: bool) -> Job:
+    def create(
+        self,
+        objective: str,
+        title: str | None,
+        include_structure: bool,
+        capabilities: list[ResearchCapability] | None = None,
+    ) -> Job:
         now = datetime.now(timezone.utc)
         job = Job(
             id=uuid4().hex[:12],
@@ -37,6 +54,11 @@ class JobStore:
             objective=objective,
             status=JobStatus.queued,
             include_structure=include_structure,
+            capabilities=resolve_capabilities(
+                objective,
+                capabilities or [],
+                include_structure,
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -143,6 +165,11 @@ class JobStore:
             objective=str(data.get("objective") or "Continue the sandbox investigation."),
             status=JobStatus.failed,
             include_structure=True,
+            capabilities=resolve_capabilities(
+                str(data.get("objective") or "Continue the sandbox investigation."),
+                [],
+                True,
+            ),
             devin_session_id=session_id,
             session_url=data.get("session_url"),
             created_at=now,

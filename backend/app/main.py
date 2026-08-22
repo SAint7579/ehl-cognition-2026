@@ -22,6 +22,12 @@ from backend.app.executor import (
     sync_job,
 )
 from backend.app.models import Job, JobCreate, JobStatus, MessageCreate, Speaker
+from backend.app.research import (
+    CapabilityInfo,
+    ResearchWorkspace,
+    catalog_response,
+    load_workspace,
+)
 from backend.app.settings import missing_devin_settings, settings, snapshot_configured
 from backend.app.store import new_message, store
 
@@ -52,9 +58,19 @@ def list_jobs() -> list[Job]:
     return sorted((_public_job(job) for job in store.list()), key=lambda job: job.created_at, reverse=True)
 
 
+@app.get("/api/capabilities", response_model=list[CapabilityInfo])
+def list_capabilities() -> list[CapabilityInfo]:
+    return catalog_response()
+
+
 @app.post("/api/jobs", response_model=Job, response_model_exclude=JOB_PUBLIC)
 def create_job(body: JobCreate) -> Job:
-    job = store.create(body.objective, body.title, body.include_structure)
+    job = store.create(
+        body.objective,
+        body.title,
+        body.include_structure,
+        body.capabilities,
+    )
     if body.devin_session_id:
         session_id, session_url = normalize_session_ref(body.devin_session_id)
         store.update(job.id, devin_session_id=session_id, session_url=session_url)
@@ -71,6 +87,14 @@ def get_job(job_id: str) -> Job:
         sync_job(job_id)
         job = store.get(job_id) or job
     return _public_job(job)
+
+
+@app.get("/api/jobs/{job_id}/research", response_model=ResearchWorkspace)
+def get_research_workspace(job_id: str) -> ResearchWorkspace:
+    job = store.get(job_id)
+    if job is None:
+        raise HTTPException(404, "job not found")
+    return load_workspace(job_id, job.capabilities)
 
 
 @app.post("/api/jobs/{job_id}/messages", response_model=Job, response_model_exclude=JOB_PUBLIC)
