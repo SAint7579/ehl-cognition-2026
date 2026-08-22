@@ -188,18 +188,83 @@ def test_research_workspace_parses_outputs_and_reports_invalid_documents(
     assert "simulation_results.json" in malformed["validation_errors"]
 
 
+def test_research_workspace_normalizes_real_devin_plan_shapes(tmp_path: Path) -> None:
+    _reset(tmp_path)
+    job = store.create(
+        "Prepare a ligand and run a docking simulation.",
+        None,
+        True,
+        [ResearchCapability.molecular_simulation],
+    )
+    directory = tmp_path / job.id
+    (directory / "research_plan.json").write_text(
+        json.dumps(
+            {
+                "objective": job.objective,
+                "strategy": [
+                    "Prepare the ligand and receptor.",
+                    "Run AutoDock Vina and parse the score.",
+                ],
+                "tasks": [
+                    {
+                        "id": "prepare",
+                        "title": "Prepare inputs",
+                        "purpose": "Create docking-ready files.",
+                        "capability": "molecular-simulation",
+                        "status": "IN_PROGRESS",
+                        "methods": ["Meeko"],
+                        "output_files": ["ligand_summary.json"],
+                    },
+                    {
+                        "id": "dock",
+                        "title": "Run docking",
+                        "purpose": "Calculate candidate poses.",
+                        "capability": "molecular-simulation",
+                        "status": "PENDING",
+                        "methods": ["AutoDock Vina"],
+                        "output_files": ["simulation_results.json"],
+                    },
+                ],
+                "assumptions": [],
+                "required_inputs": [
+                    {"name": "Deposited receptor structure", "status": "AVAILABLE"},
+                    {"name": "Ligand identity", "status": "TO_BE_SELECTED"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    workspace = TestClient(app).get(f"/api/jobs/{job.id}/research").json()
+    assert workspace["validation_errors"] == {}
+    assert workspace["plan"]["strategy"] == (
+        "Prepare the ligand and receptor.\nRun AutoDock Vina and parse the score."
+    )
+    assert [task["status"] for task in workspace["plan"]["tasks"]] == [
+        "RUNNING",
+        "PLANNED",
+    ]
+    assert workspace["plan"]["required_inputs"] == [
+        "Deposited receptor structure (AVAILABLE)",
+        "Ligand identity (TO_BE_SELECTED)",
+    ]
+
+
 def test_artifacts_include_scientist_facing_metadata(tmp_path: Path) -> None:
     _reset(tmp_path)
     job = store.create("Analyze a dataset and synthesize it.", None, False)
     directory = tmp_path / job.id
     (directory / "synthesis.json").write_text("{}", encoding="utf-8")
     (directory / "simulation_metrics.csv").write_text("name,value\nscore,-7.2\n", encoding="utf-8")
+    (directory / "ligand_summary.json").write_text("{}", encoding="utf-8")
     (directory / "dose_response.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     artifacts = {item.filename: item for item in list_artifacts(job.id)}
     assert artifacts["synthesis.json"].stage == "synthesis"
     assert artifacts["synthesis.json"].title == "Scientific synthesis"
     assert artifacts["simulation_metrics.csv"].stage == "simulation"
+    assert artifacts["ligand_summary.json"].stage == "simulation"
+    assert artifacts["ligand_summary.json"].title == "Ligand preparation summary"
     assert artifacts["dose_response.png"].stage == "analysis"
     assert artifacts["dose_response.png"].purpose
 

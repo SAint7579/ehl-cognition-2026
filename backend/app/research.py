@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from backend.app.artifacts import job_dir
 from backend.app.capabilities import CapabilitySpec, capability_catalog
@@ -30,6 +30,17 @@ class ResearchTask(BaseModel):
     methods: list[str] = Field(default_factory=list)
     output_files: list[str] = Field(default_factory=list)
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value: object) -> object:
+        aliases = {
+            "PENDING": "PLANNED",
+            "IN_PROGRESS": "RUNNING",
+        }
+        if isinstance(value, str):
+            return aliases.get(value.upper(), value.upper())
+        return value
+
 
 class ResearchPlan(BaseModel):
     objective: str = Field(min_length=1)
@@ -37,6 +48,32 @@ class ResearchPlan(BaseModel):
     tasks: list[ResearchTask] = Field(min_length=1)
     assumptions: list[str] = Field(default_factory=list)
     required_inputs: list[str] = Field(default_factory=list)
+
+    @field_validator("strategy", mode="before")
+    @classmethod
+    def normalize_strategy(cls, value: object) -> object:
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return "\n".join(value)
+        return value
+
+    @field_validator("required_inputs", mode="before")
+    @classmethod
+    def normalize_required_inputs(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        normalized: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                normalized.append(item)
+                continue
+            if not isinstance(item, dict):
+                return value
+            name = item.get("name")
+            status = item.get("status")
+            if not isinstance(name, str):
+                return value
+            normalized.append(f"{name} ({status})" if isinstance(status, str) else name)
+        return normalized
 
 
 class SynthesisFinding(BaseModel):

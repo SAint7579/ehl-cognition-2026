@@ -48,7 +48,7 @@ CAPABILITY_SPECS = (
         id=ResearchCapability.molecular_simulation,
         title="Molecular simulation",
         description="Run an appropriate CPU simulation or docking calculation and interpret quantitative outputs.",
-        tools=("AutoDock Vina when installed", "RDKit", "MDAnalysis", "Python"),
+        tools=("AutoDock Vina", "Open Babel", "Meeko", "OpenMM", "RDKit", "MDAnalysis", "Python"),
         outputs=("simulation_results.json", "simulation_metrics.csv"),
     ),
     CapabilitySpec(
@@ -178,6 +178,11 @@ def artifact_descriptor(filename: str) -> ArtifactDescriptor:
             "Simulation metrics",
             "Tabular quantitative outputs from the sandbox simulation.",
         ),
+        "ligand_summary.json": ArtifactDescriptor(
+            "simulation",
+            "Ligand preparation summary",
+            "Ligand identity, preparation method, and files used for molecular simulation.",
+        ),
         "analysis_results.json": ArtifactDescriptor(
             "analysis",
             "Analysis results",
@@ -247,7 +252,7 @@ def artifact_descriptor(filename: str) -> ArtifactDescriptor:
     if name in known:
         return known[name]
     suffix = Path(name).suffix
-    if "simulation" in name or "docking" in name or "trajectory" in name:
+    if "simulation" in name or "docking" in name or "trajectory" in name or "ligand" in name:
         return ArtifactDescriptor("simulation", _title(filename), "Supporting output from a sandbox simulation.")
     if "literature" in name or "source" in name or "citation" in name:
         return ArtifactDescriptor("literature", _title(filename), "Source material used by the investigation.")

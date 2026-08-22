@@ -58,7 +58,9 @@ Capability workflow:
 Structured artifact contracts:
 - `research_plan.json`: objective, strategy, tasks, assumptions,
   required_inputs. Each task has id, title, purpose, capability, status,
-  methods, output_files.
+  methods, output_files. `strategy` is one JSON string, `required_inputs` is
+  an array of strings, and task status must be exactly PLANNED, RUNNING,
+  COMPLETED, FAILED, BLOCKED, or SKIPPED.
 - `synthesis.json`: objective, summary, findings, agreements, disagreements,
   knowledge_gaps, recommended_next_steps, limitations. Each finding has
   title, statement, confidence (HIGH/MEDIUM/LOW/NOT_ASSESSED),
@@ -75,8 +77,9 @@ Sandbox rules:
 - Public sequence/structure retrieval is allowed when they name a protein or
   PDB id. Prefer one named record or a small search. Do not stream entire
   UniProt families, Pfam dumps, or other large FASTA sets just to count them.
-- Do not add AlphaFold, ESMFold, or MD unless they ask to change the
-  environment.
+- Do not install AlphaFold, ESMFold, or other large model stacks. When
+  molecular simulation is selected, use the installed CPU docking and OpenMM
+  tools when scientifically appropriate.
 - Label evidence KNOWN vs CALCULATED. Never call results experimental.
 - The scientist sees this product, not the sandbox desktop. Attach files
   so the right-hand Evidence panel can render them. Never open Chrome, a
