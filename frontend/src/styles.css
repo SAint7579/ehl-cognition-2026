@@ -138,10 +138,10 @@ button {
 
 .evidence-top h2 {
   margin: 0;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
 .evidence-top p,
@@ -155,7 +155,22 @@ button {
   font-size: 13px;
 }
 
-.status a {
+.evidence-top .eyebrow {
+  margin: 0 0 4px;
+  font-size: 10px;
+}
+
+.evidence-top .evidence-objective {
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.evidence-top .evidence-record {
+  font-size: 11px;
+}
+
+.status a,
+.evidence-record a {
   color: var(--accent);
 }
 
@@ -756,6 +771,174 @@ button {
   padding: 18px;
 }
 
+.task-navigation {
+  position: sticky;
+  top: -18px;
+  z-index: 4;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: -18px -18px 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(238, 243, 247, 0.96);
+  backdrop-filter: blur(8px);
+  scrollbar-width: thin;
+}
+
+.task-navigation button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.task-navigation button.selected {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+}
+
+.task-navigation button span {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10px;
+}
+
+.task-navigation button.selected span {
+  color: var(--accent);
+  background: #fff;
+}
+
+.task-overview-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.task-overview-heading h3,
+.task-context h3 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.task-overview-heading .eyebrow,
+.task-context .eyebrow {
+  margin-bottom: 2px;
+}
+
+.task-overview-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.task-summary-list {
+  display: grid;
+  gap: 10px;
+}
+
+.task-summary-card {
+  width: 100%;
+  min-width: 0;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 32, 51, 0.04);
+}
+
+.task-summary-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(11, 122, 117, 0.1);
+}
+
+.task-summary-card strong,
+.task-summary-card p,
+.task-summary-card blockquote,
+.task-output-count {
+  display: block;
+}
+
+.task-number,
+.card-kicker,
+.task-recap > span {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-summary-card strong {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.task-summary-card p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.task-summary-card blockquote {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  color: var(--ink);
+  background: #f4f9fa;
+  font-size: 12px;
+}
+
+.task-output-count {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.task-context {
+  padding: 2px 2px 14px;
+}
+
+.task-context > p:not(.eyebrow) {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.task-recap {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #cce2e1;
+  border-radius: 10px;
+  background: #f2f9f8;
+}
+
+.task-recap p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -772,18 +955,68 @@ button {
   font-weight: 600;
 }
 
-.figure-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+.card-kicker {
+  margin: 0 0 3px;
+}
+
+.output-manifest ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.output-manifest li {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
   gap: 12px;
-  margin-top: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
 }
 
-.figure-grid figure {
-  margin: 0;
+.output-manifest li > div {
+  min-width: 0;
 }
 
-.figure-grid img {
+.output-manifest strong,
+.output-manifest small {
+  display: block;
+}
+
+.output-manifest strong {
+  font-size: 13px;
+}
+
+.output-manifest li p {
+  margin: 3px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.output-manifest small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-manifest a {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.figure-card figure {
+  margin: 12px 0 0;
+}
+
+.figure-card img {
   display: block;
   width: 100%;
   min-height: 160px;
@@ -793,11 +1026,10 @@ button {
   border: 1px solid var(--line);
 }
 
-.figure-grid figcaption {
+.figure-card figcaption {
   margin-top: 6px;
   color: var(--muted);
-  font-size: 13px;
-  text-transform: capitalize;
+  font: 11px "IBM Plex Mono", ui-monospace, monospace;
 }
 
 .file-list {

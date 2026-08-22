@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   artifactUrl,
   createJob,
@@ -17,6 +17,7 @@ import {
 } from "./api";
 import { isStatusLine, visibleMessages } from "./chat";
 import { InvestigationFlow } from "./InvestigationFlow";
+import type { InvestigationSelection } from "./InvestigationFlow";
 import { Markdown } from "./Markdown";
 import { StructureViewer } from "./StructureViewer";
 import type {
@@ -35,8 +36,76 @@ const DEFAULT_OBJECTIVE = "";
 
 type TableArtifact = { filename: string; rows: string[][] };
 
+type EvidenceTaskId =
+  | "overview"
+  | "plan"
+  | "homolog-search"
+  | "conservation"
+  | "structure"
+  | "rank"
+  | "follow-up"
+  | "other";
+
+type EvidenceTaskDefinition = {
+  id: Exclude<EvidenceTaskId, "overview">;
+  title: string;
+  purpose: string;
+  stages: string[];
+};
+
+type EvidenceTask = EvidenceTaskDefinition & {
+  artifacts: ArtifactInfo[];
+  summary: string | null;
+  updatedAt: string | null;
+};
+
 const PETASE_TRIAD = new Set([160, 206, 237]);
 const PETASE_STRUCTURES = new Set(["6EQE", "5XJH"]);
+
+const EVIDENCE_TASKS: EvidenceTaskDefinition[] = [
+  {
+    id: "plan",
+    title: "Plan and execution setup",
+    purpose: "Define the biological question, analysis stages, inputs, and sandbox work needed for this investigation.",
+    stages: ["request", "sandbox", "plan", "new", "working", "running", "import"],
+  },
+  {
+    id: "homolog-search",
+    title: "Homolog search and alignment",
+    purpose: "Find related sequences and establish the comparison set used by downstream evolutionary analyses.",
+    stages: ["homolog-search"],
+  },
+  {
+    id: "conservation",
+    title: "Residue conservation analysis",
+    purpose: "Measure how strongly each target residue is preserved across the selected homologs.",
+    stages: ["conservation"],
+  },
+  {
+    id: "structure",
+    title: "Structure and spatial context",
+    purpose: "Inspect the target structure and locate catalytic or candidate residues in three-dimensional context.",
+    stages: ["structure"],
+  },
+  {
+    id: "rank",
+    title: "Candidate ranking and synthesis",
+    purpose: "Combine the available evidence into engineering candidates and a reviewable final shortlist.",
+    stages: ["rank", "review", "complete"],
+  },
+  {
+    id: "follow-up",
+    title: "Follow-up questions",
+    purpose: "Preserve later questions and answers alongside the investigation they clarify.",
+    stages: ["follow-up", "answer", "waiting_for_user", "waiting_for_approval"],
+  },
+  {
+    id: "other",
+    title: "Additional sandbox outputs",
+    purpose: "Keep supporting files that do not yet map to a named scientific task.",
+    stages: ["other", "error"],
+  },
+];
 
 const STAGE_LABEL: Record<string, string> = {
   working: "Working in the sandbox…",
@@ -72,11 +141,11 @@ export function App() {
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [tables, setTables] = useState<TableArtifact[]>([]);
   const [focusResidue, setFocusResidue] = useState<number | null>(null);
+  const [selectedEvidenceTask, setSelectedEvidenceTask] = useState<EvidenceTaskId>("overview");
   const [starting, setStarting] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const restored = useRef<string | null>(null);
   const composing = useRef(false);
-  const artifactSig = useRef<string>("");
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => undefined);
@@ -113,18 +182,8 @@ export function App() {
   }, [job?.id, job?.status, job?.active_stage]);
 
   useEffect(() => {
-    if (!job) {
-      artifactSig.current = "";
-      setHomologs([]);
-      setColumns([]);
-      setStructure(null);
-      setResidues([]);
-      setResult(null);
-      setPdbText(null);
-      setTables([]);
-      setFocusResidue(null);
-      return;
-    }
+    if (!job) return;
+    let cancelled = false;
     const needsRestore =
       Boolean(job.devin_session_id) &&
       job.artifacts.length === 0 &&
@@ -136,25 +195,85 @@ export function App() {
       restored.current = job.id;
       harvestJob(job.id)
         .then((next) => {
+          if (cancelled) return;
           setJob(next);
           setJobs((current) => upsert(current, next));
         })
         .catch(() => undefined);
     }
-    const signature = `${job.id}:${job.artifacts.map((item) => `${item.filename}:${item.bytes}`).join(",")}`;
-    if (artifactSig.current === signature) return;
-    artifactSig.current = signature;
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
+
+  const artifactSignature = job
+    ? `${job.id}:${job.artifacts.map((item) => `${item.filename}:${item.bytes}`).join(",")}`
+    : "";
+
+  useEffect(() => {
+    if (!job) {
+      setHomologs([]);
+      setColumns([]);
+      setStructure(null);
+      setResidues([]);
+      setResult(null);
+      setPdbText(null);
+      setTables([]);
+      setFocusResidue(null);
+      return;
+    }
+    let cancelled = false;
     const has = (name: string) => job.artifacts.some((item) => item.filename === name);
-    if (has("homolog_search.json")) loadHomologs(job.id).then(setHomologs).catch(() => undefined);
-    if (has("conservation.json")) loadConservation(job.id).then(setColumns).catch(() => undefined);
-    if (has("structure_summary.json")) loadStructure(job.id).then(setStructure).catch(() => undefined);
-    if (has("residue_annotations.json")) loadResidues(job.id).then(setResidues).catch(() => undefined);
-    if (has("final_result.json")) loadFinalResult(job.id).then(setResult).catch(() => undefined);
+    setHomologs([]);
+    setColumns([]);
+    setStructure(null);
+    setResidues([]);
+    setResult(null);
+    setPdbText(null);
+    if (has("homolog_search.json")) {
+      loadHomologs(job.id)
+        .then((value) => {
+          if (!cancelled) setHomologs(value);
+        })
+        .catch(() => undefined);
+    }
+    if (has("conservation.json")) {
+      loadConservation(job.id)
+        .then((value) => {
+          if (!cancelled) setColumns(value);
+        })
+        .catch(() => undefined);
+    }
+    if (has("structure_summary.json")) {
+      loadStructure(job.id)
+        .then((value) => {
+          if (!cancelled) setStructure(value);
+        })
+        .catch(() => undefined);
+    }
+    if (has("residue_annotations.json")) {
+      loadResidues(job.id)
+        .then((value) => {
+          if (!cancelled) setResidues(value);
+        })
+        .catch(() => undefined);
+    }
+    if (has("final_result.json")) {
+      loadFinalResult(job.id)
+        .then((value) => {
+          if (!cancelled) setResult(value);
+        })
+        .catch(() => undefined);
+    }
     const pdbName =
       job.artifacts.find((item) => item.filename === "structure.pdb")?.filename ??
       job.artifacts.find((item) => /\.pdb$/i.test(item.filename))?.filename;
     if (pdbName || has("structure_summary.json") || has("final_result.json")) {
-      loadStructurePdb(job.id, pdbName ?? "structure.pdb").then(setPdbText).catch(() => undefined);
+      loadStructurePdb(job.id, pdbName ?? "structure.pdb")
+        .then((value) => {
+          if (!cancelled) setPdbText(value);
+        })
+        .catch(() => undefined);
     }
     const tableFiles = job.artifacts.filter((item) => /\.(csv|tsv)$/i.test(item.filename));
     if (tableFiles.length) {
@@ -164,11 +283,20 @@ export function App() {
             text ? { filename: item.filename, rows: parseDelimited(text, item.filename) } : null,
           ),
         ),
-      ).then((rows) => setTables(rows.filter((item): item is TableArtifact => item !== null)));
+      ).then((rows) => {
+        if (!cancelled) setTables(rows.filter((item): item is TableArtifact => item !== null));
+      });
     } else {
       setTables([]);
     }
-  }, [job]);
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactSignature, job?.id]);
+
+  useEffect(() => {
+    setSelectedEvidenceTask("overview");
+  }, [job?.id]);
 
   const triad = useMemo(() => {
     const pdb = (structure?.deposition?.pdb_id ?? structure?.structure_id ?? "").toUpperCase();
@@ -176,6 +304,12 @@ export function App() {
     return residues.filter((row) => PETASE_TRIAD.has(row.author_residue));
   }, [residues, structure]);
   const turns = useMemo(() => (job ? visibleMessages(job.messages) : []), [job]);
+  const evidenceTasks = useMemo(() => (job ? buildEvidenceTasks(job) : []), [job]);
+  const activeEvidenceTask =
+    evidenceTasks.find((task) => task.id === selectedEvidenceTask) ?? null;
+  const onFlowSelection = useCallback((selection: InvestigationSelection) => {
+    setSelectedEvidenceTask(evidenceTaskForStage(selection.stage));
+  }, []);
   const awaitingConfirm = job?.active_stage === "waiting_for_approval";
   const awaitingUser = job?.active_stage === "waiting_for_user";
   const working =
@@ -227,7 +361,7 @@ export function App() {
     setResult(null);
     setPdbText(null);
     setFocusResidue(null);
-    artifactSig.current = "";
+    setSelectedEvidenceTask("overview");
   }
 
   if (!job) {
@@ -297,7 +431,12 @@ export function App() {
           </div>
         </header>
         <div className="investigation-body">
-          <InvestigationFlow key={job.id} job={job} working={working} />
+          <InvestigationFlow
+            key={job.id}
+            job={job}
+            working={working}
+            onSelectionChange={onFlowSelection}
+          />
           <section className="worklog-panel" aria-label="Live Devin worklog">
             <header className="worklog-heading">
               <div>
@@ -394,29 +533,47 @@ export function App() {
       </section>
       <section className="evidence">
         <header className="evidence-top">
-          <h2>Evidence</h2>
-          <p>Calculated from the sandbox run. Not experimental.</p>
+          <p className="eyebrow">Investigation evidence</p>
+          <h2>{job.title}</h2>
+          <p className="evidence-objective">{job.objective}</p>
+          <p className="evidence-record">
+            Updated {formatDateTime(job.updated_at)} · {job.artifacts.length} saved output
+            {job.artifacts.length === 1 ? "" : "s"}
+            {job.session_url ? (
+              <>
+                {" · "}
+                <a href={job.session_url} target="_blank" rel="noreferrer">
+                  Devin execution session
+                </a>
+              </>
+            ) : null}
+          </p>
         </header>
         <div className="results">
           {job.error && !working ? <div className="card warn-card">{friendlyError(job.error)}</div> : null}
-          {!homologs.length && !columns.length && !structure && !figures(job).length && !tables.length && !working ? (
-            <p className="empty">Results will land here as the investigation finishes.</p>
-          ) : null}
-          {working && !homologs.length && !figures(job).length ? <p className="empty">Waiting for the first artifacts…</p> : null}
-          <FigureCard jobId={job.id} images={figures(job)} />
-          <StructureViewCard
-            pdbText={pdbText}
-            structure={structure}
-            triad={triad}
-            result={result}
-            focus={focusResidue}
-            onFocus={setFocusResidue}
+          <TaskNavigation
+            tasks={evidenceTasks}
+            selected={selectedEvidenceTask}
+            onSelect={setSelectedEvidenceTask}
           />
-          <TableCard tables={tables} />
-          <HomologCard hits={homologs} />
-          <ConservationCard columns={columns} />
-          <CandidatesCard result={result} onFocus={setFocusResidue} />
-          <FileListCard jobId={job.id} artifacts={job.artifacts} />
+          {selectedEvidenceTask === "overview" || !activeEvidenceTask ? (
+            <TaskOverview tasks={evidenceTasks} onSelect={setSelectedEvidenceTask} working={working} />
+          ) : (
+            <TaskEvidence
+              job={job}
+              task={activeEvidenceTask}
+              tables={tables}
+              homologs={homologs}
+              columns={columns}
+              structure={structure}
+              pdbText={pdbText}
+              triad={triad}
+              result={result}
+              focus={focusResidue}
+              onFocus={setFocusResidue}
+              working={working}
+            />
+          )}
           {job.limitations.length ? (
             <details className="notes">
               <summary>Limitations</summary>
@@ -457,7 +614,11 @@ function Sidebar({
             onClick={() => onSelect(item)}
           >
             <span>{item.title}</span>
-            <small>{item.status === "running" || item.status === "queued" ? "Working" : ""}</small>
+            <small>
+              {item.status === "running" || item.status === "queued"
+                ? "Working now"
+                : `${formatShortDate(item.updated_at)} · ${item.artifacts.length} outputs`}
+            </small>
           </button>
         ))}
       </div>
@@ -481,6 +642,20 @@ function formatClock(value: string): string {
   return Number.isNaN(date.valueOf())
     ? ""
     : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf())
+    ? ""
+    : date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf())
+    ? ""
+    : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function stageName(stage: string | null): string {
@@ -508,12 +683,358 @@ function friendlyError(error: string): string {
   return "Something went wrong in the sandbox. Try a follow-up, or start a new investigation.";
 }
 
-function figures(job: Job): ArtifactInfo[] {
-  return job.artifacts.filter((item) => /\.(png|jpe?g|webp|gif|svg)$/i.test(item.filename));
+function buildEvidenceTasks(job: Job): EvidenceTask[] {
+  const artifactStages = new Map<string, string>();
+  for (const event of job.events) {
+    if (event.type === "artifact.ready" && event.artifact_id && event.stage) {
+      artifactStages.set(event.artifact_id, event.stage);
+    }
+  }
+
+  const summaries = new Map<EvidenceTaskId, { text: string; updatedAt: string }>();
+  let handlingFollowUp = false;
+  for (const message of visibleMessages(job.messages)) {
+    if (message.speaker === "user") handlingFollowUp = true;
+    const taskId = handlingFollowUp
+      ? "follow-up"
+      : taskForStage(message.stage ?? speakerStage(message.speaker));
+    summaries.set(taskId, { text: summarizeText(message.body), updatedAt: message.created_at });
+  }
+  for (const event of job.events) {
+    if (!event.stage || !["artifact.ready", "agent.error"].includes(event.type)) continue;
+    const taskId = taskForStage(event.stage);
+    const current = summaries.get(taskId);
+    if (!current || current.updatedAt < event.created_at) {
+      summaries.set(taskId, {
+        text: current?.text ?? event.message,
+        updatedAt: event.created_at,
+      });
+    }
+  }
+
+  return EVIDENCE_TASKS.map((definition) => {
+    const artifacts = job.artifacts.filter(
+      (artifact) => taskForArtifact(artifact, artifactStages.get(artifact.id)) === definition.id,
+    );
+    const summary = summaries.get(definition.id);
+    return {
+      ...definition,
+      artifacts,
+      summary: summary?.text ?? null,
+      updatedAt: summary?.updatedAt ?? null,
+    };
+  }).filter(
+    (task) =>
+      task.id !== "other" ||
+      task.artifacts.length > 0 ||
+      Boolean(task.summary),
+  );
+}
+
+function evidenceTaskForStage(stage: string): EvidenceTaskId {
+  if (stage === "complete" || stage === "request" || stage === "error") return "overview";
+  return EVIDENCE_TASKS.find((task) => task.stages.includes(stage))?.id ?? "overview";
+}
+
+function taskForStage(stage: string | null | undefined): Exclude<EvidenceTaskId, "overview"> {
+  if (!stage) return "other";
+  return EVIDENCE_TASKS.find((task) => task.stages.includes(stage))?.id ?? "other";
+}
+
+function speakerStage(speaker: Job["messages"][number]["speaker"]): string {
+  return {
+    planner: "plan",
+    search: "homolog-search",
+    structure: "structure",
+    design: "rank",
+    reviewer: "review",
+    user: "follow-up",
+    system: "sandbox",
+  }[speaker];
+}
+
+function taskForArtifact(
+  artifact: ArtifactInfo,
+  recordedStage?: string,
+): Exclude<EvidenceTaskId, "overview"> {
+  const filename = artifact.filename.toLowerCase();
+  if (filename === "run.json") return "plan";
+  if (["homolog_search.json", "homologs.fasta", "alignment.json", "alignment.fasta"].includes(filename)) {
+    return "homolog-search";
+  }
+  if (filename === "conservation.json") return "conservation";
+  if (
+    ["structure_summary.json", "residue_annotations.json", "structure.pdb"].includes(filename) ||
+    /\.(pdb|cif)$/i.test(filename)
+  ) {
+    return "structure";
+  }
+  if (["candidate_sites.json", "final_result.json"].includes(filename)) return "rank";
+  if (recordedStage) return taskForStage(recordedStage);
+  return "other";
+}
+
+function summarizeText(value: string): string {
+  const text = value
+    .replace(/[#*_`>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+}
+
+function figures(artifacts: ArtifactInfo[]): ArtifactInfo[] {
+  return artifacts.filter((item) => /\.(png|jpe?g|webp|gif|svg)$/i.test(item.filename));
 }
 
 function prettyName(filename: string): string {
-  return filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+  const text = filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+  return text.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function outputPresentation(
+  artifact: ArtifactInfo,
+  task: EvidenceTaskDefinition,
+): { title: string; purpose: string } {
+  const known: Record<string, { title: string; purpose: string }> = {
+    "run.json": {
+      title: "Sandbox run record",
+      purpose: "Records execution details that can support a later audit or reproducible rerun.",
+    },
+    "homolog_search.json": {
+      title: "Homolog search results",
+      purpose: "Lists related sequences used to define the evolutionary comparison set.",
+    },
+    "homologs.fasta": {
+      title: "Homolog sequence collection",
+      purpose: "Preserves the exact sequences selected for downstream alignment and analysis.",
+    },
+    "alignment.json": {
+      title: "Multiple-sequence alignment data",
+      purpose: "Stores residue correspondence across the target and selected homologs.",
+    },
+    "alignment.fasta": {
+      title: "Multiple-sequence alignment",
+      purpose: "Provides the aligned sequences used to calculate residue conservation.",
+    },
+    "conservation.json": {
+      title: "Residue conservation profile",
+      purpose: "Reports how strongly each target position is preserved across the aligned homologs.",
+    },
+    "structure_summary.json": {
+      title: "Structure identity and quality summary",
+      purpose: "Identifies the structure source and records the structural context used for interpretation.",
+    },
+    "residue_annotations.json": {
+      title: "Structure-mapped residue annotations",
+      purpose: "Connects sequence positions, conservation values, accessibility, and structure residue numbers.",
+    },
+    "structure.pdb": {
+      title: "3D structure coordinates",
+      purpose: "Provides the coordinates rendered in the interactive structure view.",
+    },
+    "candidate_sites.json": {
+      title: "Ranked candidate-site data",
+      purpose: "Stores the scored residue candidates used to compare possible engineering sites.",
+    },
+    "final_result.json": {
+      title: "Investigation shortlist and synthesis",
+      purpose: "Preserves the final candidate groups, supporting evidence, and stated limitations.",
+    },
+  };
+  const exact = known[artifact.filename.toLowerCase()];
+  if (exact) return exact;
+  const title = prettyName(artifact.filename);
+  if (/\.(png|jpe?g|webp|gif|svg)$/i.test(artifact.filename)) {
+    return {
+      title,
+      purpose: `Visualizes a result produced during ${task.title.toLowerCase()}.`,
+    };
+  }
+  if (/\.(csv|tsv)$/i.test(artifact.filename)) {
+    return {
+      title,
+      purpose: `Provides the row-level data produced during ${task.title.toLowerCase()} for inspection or reuse.`,
+    };
+  }
+  return {
+    title,
+    purpose: `Supporting output retained from ${task.title.toLowerCase()}.`,
+  };
+}
+
+function TaskNavigation({
+  tasks,
+  selected,
+  onSelect,
+}: {
+  tasks: EvidenceTask[];
+  selected: EvidenceTaskId;
+  onSelect: (task: EvidenceTaskId) => void;
+}) {
+  return (
+    <nav className="task-navigation" aria-label="Evidence tasks">
+      <button
+        type="button"
+        className={selected === "overview" ? "selected" : ""}
+        onClick={() => onSelect("overview")}
+      >
+        All tasks
+      </button>
+      {tasks.map((task) => (
+        <button
+          type="button"
+          className={selected === task.id ? "selected" : ""}
+          onClick={() => onSelect(task.id)}
+          key={task.id}
+        >
+          {task.title}
+          {task.artifacts.length ? <span>{task.artifacts.length}</span> : null}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function TaskOverview({
+  tasks,
+  onSelect,
+  working,
+}: {
+  tasks: EvidenceTask[];
+  onSelect: (task: EvidenceTaskId) => void;
+  working: boolean;
+}) {
+  return (
+    <section className="task-overview" aria-label="Investigation task outputs">
+      <div className="task-overview-heading">
+        <div>
+          <p className="eyebrow">Task map</p>
+          <h3>What each stage was for</h3>
+        </div>
+        <span>{working ? "Updating live" : "Saved investigation record"}</span>
+      </div>
+      <div className="task-summary-list">
+        {tasks.map((task, index) => (
+          <button type="button" className="task-summary-card" onClick={() => onSelect(task.id)} key={task.id}>
+            <span className="task-number">Task {index + 1}</span>
+            <strong>{task.title}</strong>
+            <p>{task.purpose}</p>
+            {task.summary ? <blockquote>{task.summary}</blockquote> : null}
+            <span className="task-output-count">
+              {task.artifacts.length
+                ? `${task.artifacts.length} saved output${task.artifacts.length === 1 ? "" : "s"}`
+                : "No saved output"}
+              {task.updatedAt ? ` · ${formatDateTime(task.updatedAt)}` : ""}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TaskEvidence({
+  job,
+  task,
+  tables,
+  homologs,
+  columns,
+  structure,
+  pdbText,
+  triad,
+  result,
+  focus,
+  onFocus,
+  working,
+}: {
+  job: Job;
+  task: EvidenceTask;
+  tables: TableArtifact[];
+  homologs: HomologHit[];
+  columns: ConservationColumn[];
+  structure: StructureSummary | null;
+  pdbText: string | null;
+  triad: ResidueAnnotation[];
+  result: FinalResult | null;
+  focus: number | null;
+  onFocus: (residue: number) => void;
+  working: boolean;
+}) {
+  const taskIndex = EVIDENCE_TASKS.findIndex((definition) => definition.id === task.id) + 1;
+  const tableNames = new Set(task.artifacts.map((artifact) => artifact.filename));
+  const taskTables = tables.filter((table) => tableNames.has(table.filename));
+  const taskFigures = figures(task.artifacts);
+  return (
+    <section className="task-evidence" aria-label={`${task.title} evidence`}>
+      <header className="task-context">
+        <p className="eyebrow">Task {taskIndex}</p>
+        <h3>{task.title}</h3>
+        <p>{task.purpose}</p>
+        {task.summary ? (
+          <div className="task-recap">
+            <span>What Devin reported</span>
+            <p>{task.summary}</p>
+          </div>
+        ) : null}
+      </header>
+      <OutputManifest jobId={job.id} task={task} />
+      {task.id === "homolog-search" ? <HomologCard hits={homologs} /> : null}
+      {task.id === "conservation" ? <ConservationCard columns={columns} /> : null}
+      {task.id === "structure" ? (
+        <StructureViewCard
+          pdbText={pdbText}
+          structure={structure}
+          triad={triad}
+          result={result}
+          focus={focus}
+          onFocus={onFocus}
+        />
+      ) : null}
+      {task.id === "rank" ? <CandidatesCard result={result} onFocus={onFocus} /> : null}
+      <FigureCard jobId={job.id} images={taskFigures} task={task} />
+      <TableCard tables={taskTables} task={task} />
+      {!task.artifacts.length ? (
+        <div className="card task-empty">
+          <h3>{working ? "No output saved yet" : "Context only"}</h3>
+          <p className="card-meta">
+            {working
+              ? "This task is still part of the live investigation. Its outputs will appear here when Devin saves them."
+              : "This task recorded the investigation context or discussion, but did not create a separate file."}
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OutputManifest({ jobId, task }: { jobId: string; task: EvidenceTask }) {
+  if (!task.artifacts.length) return null;
+  return (
+    <div className="card output-manifest">
+      <p className="card-kicker">Saved outputs</p>
+      <h3>Files produced for this task</h3>
+      <p className="card-meta">Each output stays attached to the stage that produced it.</p>
+      <ul>
+        {task.artifacts.map((artifact) => {
+          const presentation = outputPresentation(artifact, task);
+          return (
+            <li key={artifact.id}>
+              <div>
+                <strong>{presentation.title}</strong>
+                <p>{presentation.purpose}</p>
+                <small>
+                  {artifact.filename} · {Math.max(1, Math.round(artifact.bytes / 1024))} KB
+                </small>
+              </div>
+              <a href={artifactUrl(jobId, artifact.filename)} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function parseDelimited(text: string, filename: string): string[][] {
@@ -526,72 +1047,65 @@ function parseDelimited(text: string, filename: string): string[][] {
     .map((line) => line.split(delimiter).slice(0, 8));
 }
 
-function FigureCard({ jobId, images }: { jobId: string; images: ArtifactInfo[] }) {
+function FigureCard({
+  jobId,
+  images,
+  task,
+}: {
+  jobId: string;
+  images: ArtifactInfo[];
+  task: EvidenceTaskDefinition;
+}) {
   if (!images.length) return null;
   return (
-    <div className="card figure-card">
-      <h3>Figures</h3>
-      <p className="card-meta">Attached images from the sandbox. Not experimental photos.</p>
-      <div className="figure-grid">
-        {images.map((item) => (
-          <figure key={item.filename}>
-            <img src={artifactUrl(jobId, item.filename)} alt={prettyName(item.filename)} />
-            <figcaption>{prettyName(item.filename)}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TableCard({ tables }: { tables: TableArtifact[] }) {
-  if (!tables.length) return null;
-  return (
     <>
-      {tables.map((table) => (
-        <div className="card" key={table.filename}>
-          <h3>{prettyName(table.filename)}</h3>
-          <p className="card-meta">{table.filename}</p>
-          <table>
-            <tbody>
-              {table.rows.map((row, index) => (
-                <tr key={`${table.filename}-${index}`}>
-                  {row.map((cell, cellIndex) =>
-                    index === 0 ? <th key={cellIndex}>{cell}</th> : <td key={cellIndex}>{cell}</td>,
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
+      {images.map((item) => {
+        const presentation = outputPresentation(item, task);
+        return (
+          <div className="card figure-card" key={item.filename}>
+            <p className="card-kicker">Generated figure</p>
+            <h3>{presentation.title}</h3>
+            <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
+            <figure>
+              <img src={artifactUrl(jobId, item.filename)} alt={prettyName(item.filename)} />
+              <figcaption>{item.filename}</figcaption>
+            </figure>
+          </div>
+        );
+      })}
     </>
   );
 }
 
-function FileListCard({ jobId, artifacts }: { jobId: string; artifacts: ArtifactInfo[] }) {
-  const extras = artifacts.filter(
-    (item) =>
-      !["homolog_search.json", "conservation.json", "structure_summary.json", "residue_annotations.json", "final_result.json", "candidate_sites.json", "structure.pdb"].includes(
-        item.filename,
-      ) && !/\.(png|jpe?g|webp|gif|svg|csv|tsv)$/i.test(item.filename),
-  );
-  if (!extras.length) return null;
+function TableCard({ tables, task }: { tables: TableArtifact[]; task: EvidenceTaskDefinition }) {
+  if (!tables.length) return null;
   return (
-    <div className="card">
-      <h3>Other files</h3>
-      <p className="card-meta">Also attached to this investigation</p>
-      <ul className="file-list">
-        {extras.map((item) => (
-          <li key={item.filename}>
-            <a href={artifactUrl(jobId, item.filename)} target="_blank" rel="noreferrer">
-              {item.filename}
-            </a>
-            <small>{Math.max(1, Math.round(item.bytes / 1024))} KB</small>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <>
+      {tables.map((table) => {
+        const presentation = outputPresentation(
+          { id: table.filename, filename: table.filename, media_type: "text/csv", bytes: 0 },
+          task,
+        );
+        return (
+          <div className="card" key={table.filename}>
+            <p className="card-kicker">Generated table</p>
+            <h3>{presentation.title}</h3>
+            <p className="card-meta">{presentation.purpose}</p>
+            <table>
+              <tbody>
+                {table.rows.map((row, index) => (
+                  <tr key={`${table.filename}-${index}`}>
+                    {row.map((cell, cellIndex) =>
+                      index === 0 ? <th key={cellIndex}>{cell}</th> : <td key={cellIndex}>{cell}</td>,
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -599,8 +1113,11 @@ function HomologCard({ hits }: { hits: HomologHit[] }) {
   if (!hits.length) return null;
   return (
     <div className="card">
-      <h3>Homologs</h3>
-      <p className="card-meta">{hits.length} sequences from the local fixture database</p>
+      <p className="card-kicker">Interpreted result</p>
+      <h3>Homolog search results</h3>
+      <p className="card-meta">
+        {hits.length} related sequences used to establish the evolutionary comparison set.
+      </p>
       <table>
         <thead>
           <tr>
@@ -627,8 +1144,11 @@ function ConservationCard({ columns }: { columns: ConservationColumn[] }) {
   if (!columns.length) return null;
   return (
     <div className="card">
-      <h3>Conservation</h3>
-      <p className="card-meta">Darker cells are more conserved along the target</p>
+      <p className="card-kicker">Generated chart</p>
+      <h3>Residue conservation across the target sequence</h3>
+      <p className="card-meta">
+        Each cell is one target residue; darker cells are more conserved across the selected homologs.
+      </p>
       <div className="heatmap" aria-label="conservation heatmap">
         {columns.map((col) => {
           const value = col.conservation ?? 0;
@@ -666,11 +1186,13 @@ function StructureViewCard({
   const stability = (result?.shortlists?.stability?.sites ?? []).map((site) => site.author_residue);
   const triadResi = triad.map((row) => row.author_residue);
   const top = structure?.foldseek_hits?.[0];
+  const structureId = structure?.deposition?.pdb_id ?? structure?.structure_id;
   return (
     <div className="card viewer-card">
-      <h3>{structure?.deposition?.pdb_id ?? structure?.structure_id ?? "Structure"}</h3>
+      <p className="card-kicker">Interactive 3D output</p>
+      <h3>{structureId ? `3D structure view · ${structureId}` : "3D structure view"}</h3>
       <p className="card-meta">
-        Deposited crystal structure, not a computed fold
+        Inspect where catalytic and ranked candidate residues sit in the target structure. Deposited coordinates, not a computed fold
         {structure ? ` · ${structure.modelled_residue_count} modelled residues` : ""}
         {top ? ` · closest Foldseek ${top.target}` : ""}
       </p>
@@ -729,8 +1251,11 @@ function CandidatesCard({
   if (!activity.length && !stability.length) return null;
   return (
     <div className="card">
-      <h3>Candidate sites</h3>
-      <p className="card-meta">Heuristic rankings. Click a residue to focus it in 3D.</p>
+      <p className="card-kicker">Decision support</p>
+      <h3>Ranked engineering candidates</h3>
+      <p className="card-meta">
+        Heuristic shortlists for activity and stability hypotheses. Click a residue to inspect it in 3D.
+      </p>
       <ShortlistTable title="Activity" sites={activity} onFocus={onFocus} />
       <ShortlistTable title="Stability" sites={stability} onFocus={onFocus} />
     </div>
