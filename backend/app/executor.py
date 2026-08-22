@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.artifacts import is_allowed_artifact, job_dir, list_artifacts
+from backend.app.capabilities import artifact_descriptor
 from backend.app.chatfilter import clean_body, is_internal
 from backend.app.devin import DevinClient, DevinError, SessionClient, normalize_session_ref
 from backend.app.models import JobStatus, Speaker
@@ -37,6 +38,10 @@ BUSY_STAGES = frozenset({
     "homolog-search",
     "conservation",
     "structure",
+    "literature",
+    "analysis",
+    "simulation",
+    "synthesis",
     "rank",
 })
 CONFIRM_PROMPT = (
@@ -65,12 +70,23 @@ STAGE_LABEL = {
     "homolog-search": "Searching homologs",
     "conservation": "Computing conservation",
     "structure": "Reading the deposited structure",
+    "literature": "Searching literature and databases",
+    "analysis": "Analyzing scientific data",
+    "simulation": "Running a sandbox simulation",
+    "synthesis": "Synthesizing the investigation",
     "rank": "Ranking candidate sites",
     "follow-up": "Answering",
     "import": "Pulling result files",
     "sandbox": "Working in the sandbox",
 }
 FILE_LABEL = {
+    "research_plan.json": "Research plan arrived",
+    "literature_sources.csv": "Literature source table arrived",
+    "synthesis.json": "Scientific synthesis arrived",
+    "simulation_results.json": "Simulation results arrived",
+    "simulation_metrics.csv": "Simulation metrics arrived",
+    "analysis_results.json": "Analysis results arrived",
+    "analysis_table.csv": "Analysis table arrived",
     "homolog_search.json": "Homolog search results arrived",
     "homologs.fasta": "Homolog sequences arrived",
     "alignment.json": "Alignment finished",
@@ -122,7 +138,10 @@ def run_job(
             _finish_from_session(job_id, session_client, session_id, sleep, now, wait=False)
             return
         store.add_event(job_id, new_event("job.started", "Opening Devin Cloud sandbox", "sandbox"))
-        session = session_client.create_session(investigation_prompt(job.objective), job.title)
+        session = session_client.create_session(
+            investigation_prompt(job.objective, job.capabilities),
+            job.title,
+        )
         session_id = str(session.get("session_id") or "")
         session_url = str(session.get("url") or "")
         if not session_id:
@@ -178,7 +197,10 @@ def answer_follow_up(
             error=None,
         )
         store.add_event(job_id, new_event("stage.started", "Sending follow-up to the sandbox", "follow-up"))
-        session_client.send_message(session_id, follow_up_prompt(body))
+        session_client.send_message(
+            session_id,
+            follow_up_prompt(body, job.capabilities),
+        )
         _finish_from_session(
             job_id,
             session_client,
@@ -536,7 +558,12 @@ def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> lis
         seen.update(keys)
         store.add_message(
             job_id,
-            new_message(speaker, body, stage=_stage_for(speaker), source_id=source_id or None),
+            new_message(
+                speaker,
+                body,
+                stage=_stage_for_message(speaker, body),
+                source_id=source_id or None,
+            ),
         )
         added.append(keys[0])
     store.update(job_id, seen_devin_ids=sorted(seen), active_agent=_latest_agent(job_id))
@@ -733,6 +760,36 @@ def _stage_for(speaker: Speaker) -> str:
     }.get(speaker, "sandbox")
 
 
+def _stage_for_message(speaker: Speaker, body: str) -> str:
+    text = body.lower()
+    markers = (
+        ("literature", "literature"),
+        ("database search", "literature"),
+        ("sequence analysis", "homolog-search"),
+        ("homolog", "homolog-search"),
+        ("alignment", "homolog-search"),
+        ("conservation", "conservation"),
+        ("structure analysis", "structure"),
+        ("structure", "structure"),
+        ("simulation", "simulation"),
+        ("docking", "simulation"),
+        ("molecular dynamics", "simulation"),
+        ("candidate ranking", "rank"),
+        ("shortlist", "rank"),
+        ("data analysis", "analysis"),
+        ("synthesis", "synthesis"),
+    )
+    matches = (
+        (text.find(marker), stage)
+        for marker, stage in markers
+        if marker in text[:160]
+    )
+    first = min(matches, default=None, key=lambda item: item[0])
+    if first is not None:
+        return first[1]
+    return _stage_for(speaker)
+
+
 def _file_label(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
     if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}:
@@ -745,14 +802,7 @@ def _file_label(filename: str) -> str:
 
 
 def _stage_for_file(filename: str) -> str:
-    suffix = Path(filename).suffix.lower()
-    if filename.startswith("structure") or filename.startswith("residue") or suffix in {".pdb", ".cif", ".png", ".jpg", ".jpeg", ".webp", ".svg"}:
-        return "structure"
-    if filename in {"candidate_sites.json", "final_result.json"}:
-        return "rank"
-    if filename == "conservation.json":
-        return "conservation"
-    return "homolog-search"
+    return artifact_descriptor(filename).stage
 
 
 def _latest_agent(job_id: str) -> Speaker | None:
@@ -767,22 +817,34 @@ def _latest_agent(job_id: str) -> Speaker | None:
 
 def _has_science(artifacts: list[Any]) -> bool:
     names = {item.filename for item in artifacts}
-    if names & {"conservation.json", "final_result.json", "homolog_search.json", "structure.pdb"}:
+    if names & {
+        "conservation.json",
+        "final_result.json",
+        "homolog_search.json",
+        "structure.pdb",
+        "synthesis.json",
+        "simulation_results.json",
+        "analysis_results.json",
+    }:
         return True
     return any(name.lower().endswith((".png", ".pdb", ".cif", ".csv")) for name in names)
 
 
 def _limitations(job_id: str) -> list[str]:
-    path = job_dir(job_id) / "final_result.json"
-    if not path.is_file():
-        return [
-            "All reported evidence is retrieved or calculated; none is experimental validation.",
-        ]
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    values = data.get("limitations") if isinstance(data, dict) else None
-    if isinstance(values, list):
-        return [str(item) for item in values]
-    return []
+    limitations: list[str] = []
+    for filename in ("final_result.json", "synthesis.json"):
+        path = job_dir(job_id) / filename
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        values = data.get("limitations") if isinstance(data, dict) else None
+        if isinstance(values, list):
+            limitations.extend(str(item) for item in values)
+    if not limitations:
+        limitations.append(
+            "All reported evidence is retrieved, calculated, or simulated; none is experimental validation."
+        )
+    return list(dict.fromkeys(limitations))

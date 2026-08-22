@@ -6,10 +6,18 @@ import mimetypes
 import re
 from pathlib import Path
 
+from backend.app.capabilities import artifact_descriptor
 from backend.app.models import ArtifactInfo
 from backend.app.settings import settings
 
 NAMED_ARTIFACTS = (
+    "research_plan.json",
+    "literature_sources.csv",
+    "synthesis.json",
+    "simulation_results.json",
+    "simulation_metrics.csv",
+    "analysis_results.json",
+    "analysis_table.csv",
     "homolog_search.json",
     "homologs.fasta",
     "alignment.json",
@@ -124,12 +132,16 @@ def list_artifacts(job_id: str) -> list[ArtifactInfo]:
         if path.name in seen or not is_allowed_artifact(path.name):
             continue
         seen.add(path.name)
+        descriptor = artifact_descriptor(path.name)
         found.append(
             ArtifactInfo(
                 id=f"art_{path.stem}",
                 filename=path.name,
                 media_type=media_type(path.name),
                 bytes=path.stat().st_size,
+                stage=descriptor.stage,
+                title=descriptor.title,
+                purpose=descriptor.purpose,
             )
         )
         if len(found) >= MAX_LISTED:

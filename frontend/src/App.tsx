@@ -34,7 +34,7 @@ import type {
 
 const DEFAULT_OBJECTIVE = "";
 
-type TableArtifact = { filename: string; rows: string[][] };
+type TableArtifact = { artifact: ArtifactInfo; filename: string; rows: string[][] };
 
 type EvidenceTaskId =
   | "overview"
@@ -42,6 +42,10 @@ type EvidenceTaskId =
   | "homolog-search"
   | "conservation"
   | "structure"
+  | "literature"
+  | "analysis"
+  | "simulation"
+  | "synthesis"
   | "rank"
   | "follow-up"
   | "other";
@@ -70,6 +74,12 @@ const EVIDENCE_TASKS: EvidenceTaskDefinition[] = [
     stages: ["request", "sandbox", "plan", "new", "working", "running", "import"],
   },
   {
+    id: "literature",
+    title: "Literature and database search",
+    purpose: "Collect the focused records and publications used to answer the research question.",
+    stages: ["literature"],
+  },
+  {
     id: "homolog-search",
     title: "Homolog search and alignment",
     purpose: "Find related sequences and establish the comparison set used by downstream evolutionary analyses.",
@@ -88,10 +98,28 @@ const EVIDENCE_TASKS: EvidenceTaskDefinition[] = [
     stages: ["structure"],
   },
   {
+    id: "analysis",
+    title: "Scientific data analysis",
+    purpose: "Clean, compare, visualize, and statistically analyze scientific datasets in the sandbox.",
+    stages: ["analysis"],
+  },
+  {
+    id: "simulation",
+    title: "Molecular simulation",
+    purpose: "Run and interpret quantitative docking or simulation calculations using available sandbox engines.",
+    stages: ["simulation"],
+  },
+  {
     id: "rank",
     title: "Candidate ranking and synthesis",
     purpose: "Combine the available evidence into engineering candidates and a reviewable final shortlist.",
     stages: ["rank", "review", "complete"],
+  },
+  {
+    id: "synthesis",
+    title: "Scientific synthesis",
+    purpose: "Integrate retrieved and computed evidence into findings, conflicts, limitations, and next experiments.",
+    stages: ["synthesis"],
   },
   {
     id: "follow-up",
@@ -119,6 +147,10 @@ const STAGE_LABEL: Record<string, string> = {
   "homolog-search": "Searching homologs…",
   conservation: "Computing conservation…",
   structure: "Reading the deposited structure…",
+  literature: "Searching literature and databases…",
+  analysis: "Analyzing scientific data…",
+  simulation: "Running a sandbox simulation…",
+  synthesis: "Synthesizing the investigation…",
   rank: "Ranking candidate sites…",
   "follow-up": "Answering…",
   import: "Pulling result files…",
@@ -280,7 +312,9 @@ export function App() {
       Promise.all(
         tableFiles.map((item) =>
           loadText(job.id, item.filename).then((text) =>
-            text ? { filename: item.filename, rows: parseDelimited(text, item.filename) } : null,
+            text
+              ? { artifact: item, filename: item.filename, rows: parseDelimited(text, item.filename) }
+              : null,
           ),
         ),
       ).then((rows) => {
@@ -758,7 +792,11 @@ function taskForArtifact(
   recordedStage?: string,
 ): Exclude<EvidenceTaskId, "overview"> {
   const filename = artifact.filename.toLowerCase();
-  if (filename === "run.json") return "plan";
+  if (["research_plan.json", "run.json"].includes(filename)) return "plan";
+  if (filename === "literature_sources.csv") return "literature";
+  if (["analysis_results.json", "analysis_table.csv"].includes(filename)) return "analysis";
+  if (["simulation_results.json", "simulation_metrics.csv"].includes(filename)) return "simulation";
+  if (filename === "synthesis.json") return "synthesis";
   if (["homolog_search.json", "homologs.fasta", "alignment.json", "alignment.fasta"].includes(filename)) {
     return "homolog-search";
   }
@@ -770,6 +808,7 @@ function taskForArtifact(
     return "structure";
   }
   if (["candidate_sites.json", "final_result.json"].includes(filename)) return "rank";
+  if (artifact.stage) return taskForStage(artifact.stage);
   if (recordedStage) return taskForStage(recordedStage);
   return "other";
 }
@@ -795,6 +834,9 @@ function outputPresentation(
   artifact: ArtifactInfo,
   task: EvidenceTaskDefinition,
 ): { title: string; purpose: string } {
+  if (artifact.title && artifact.purpose) {
+    return { title: artifact.title, purpose: artifact.purpose };
+  }
   const known: Record<string, { title: string; purpose: string }> = {
     "run.json": {
       title: "Sandbox run record",
@@ -1082,10 +1124,7 @@ function TableCard({ tables, task }: { tables: TableArtifact[]; task: EvidenceTa
   return (
     <>
       {tables.map((table) => {
-        const presentation = outputPresentation(
-          { id: table.filename, filename: table.filename, media_type: "text/csv", bytes: 0 },
-          task,
-        );
+        const presentation = outputPresentation(table.artifact, task);
         return (
           <div className="card" key={table.filename}>
             <p className="card-kicker">Generated table</p>

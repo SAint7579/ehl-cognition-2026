@@ -23,6 +23,9 @@ export type ArtifactInfo = {
   filename: string;
   media_type: string;
   bytes: number;
+  stage: string;
+  title: string;
+  purpose: string;
 };
 
 export type JobEvent = {
@@ -44,6 +47,7 @@ export type Job = {
   active_stage: string | null;
   error: string | null;
   include_structure: boolean;
+  capabilities: string[];
   devin_session_id: string | null;
   session_url: string | null;
   created_at: string;

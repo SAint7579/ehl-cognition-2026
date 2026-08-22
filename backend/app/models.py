@@ -24,11 +24,22 @@ class Speaker(str, Enum):
     system = "system"
 
 
+class ResearchCapability(str, Enum):
+    literature_search = "literature-search"
+    research_synthesis = "research-synthesis"
+    sequence_analysis = "sequence-analysis"
+    structure_analysis = "structure-analysis"
+    molecular_simulation = "molecular-simulation"
+    candidate_ranking = "candidate-ranking"
+    data_analysis = "data-analysis"
+
+
 class JobCreate(BaseModel):
     objective: str = Field(min_length=3, max_length=4000)
     title: str | None = None
     include_structure: bool = True
     devin_session_id: str | None = Field(default=None, max_length=400)
+    capabilities: list[ResearchCapability] = Field(default_factory=list)
 
 
 class MessageCreate(BaseModel):
@@ -68,6 +79,9 @@ class ArtifactInfo(BaseModel):
     filename: str
     media_type: str
     bytes: int
+    stage: str
+    title: str
+    purpose: str
 
 
 class Job(BaseModel):
@@ -80,6 +94,7 @@ class Job(BaseModel):
     active_stage: str | None = None
     error: str | None = None
     include_structure: bool = True
+    capabilities: list[ResearchCapability] = Field(default_factory=list)
     devin_session_id: str | None = None
     session_url: str | None = None
     seen_devin_ids: list[str] = Field(default_factory=list)
