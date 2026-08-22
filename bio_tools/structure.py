@@ -130,7 +130,7 @@ def analyze_structure(
                     f"Only {identity_fraction:.3f} of mapped residues match the target; "
                     f"threshold is {MAPPING_IDENTITY_THRESHOLD:.3f}."
                 ),
-                severity="HIGH",
+                severity="ERROR",
             )
         )
     mapping_provenance = ProvenanceRecord(
@@ -148,9 +148,12 @@ def analyze_structure(
         evidence_type="CALCULATED",
     )
     mapped_target_positions = {position for position in mapping if position is not None}
-    unmodelled = _ranges(
-        index for index in range(1, len(target_sequence) + 1) if index not in mapped_target_positions
-    )
+    unmodelled_positions = {
+        index
+        for index in range(1, len(target_sequence) + 1)
+        if index not in mapped_target_positions
+    }
+    unmodelled = _ranges(unmodelled_positions)
     if unmodelled:
         warnings.append(
             StructureWarning(
@@ -325,7 +328,7 @@ def analyze_structure(
         residue_counts={
             "target": len(target_sequence),
             "modelled_standard": len(residues),
-            "unmodelled_target": _count_ranges(unmodelled),
+            "unmodelled_target": len(unmodelled_positions),
             "dssp_annotated": sum(item.dssp_8state is not None for item in annotations),
         },
         modelled_residue_count=len(residues),
@@ -447,8 +450,8 @@ def _has_author_gap(
         return False
     if previous_code is None or current_code is None:
         return False
-    previous_rank = 0 if previous_code is None else ord(previous_code)
-    current_rank = 0 if current_code is None else ord(current_code)
+    previous_rank = ord(previous_code)
+    current_rank = ord(current_code)
     return current_rank > previous_rank + 1
 
 
@@ -511,7 +514,7 @@ def _annotate_residues(
         rsa = None
         if dssp is not None:
             max_acc = residue_max_acc["Sander"][residue.resname]
-            rsa = min(acc / max_acc, 1.0)
+            rsa = acc / max_acc
         msa_item = msa_by_target.get(target_position) if target_position is not None else None
         annotations.append(
             AnnotationData(
@@ -541,6 +544,19 @@ def _annotate_residues(
             StructureWarning(
                 code="ABSENT_FROM_DSSP",
                 message=f"Modelled residues absent from DSSP output: {', '.join(missing)}.",
+                severity="WARNING",
+            )
+        )
+    high_rsa = [
+        item.structure_index
+        for item in annotations
+        if item.rsa is not None and item.rsa > 1
+    ]
+    if high_rsa:
+        warnings.append(
+            StructureWarning(
+                code="RSA_ABOVE_ONE",
+                message=f"Relative solvent accessibility exceeds 1 at structure indices {high_rsa}.",
                 severity="WARNING",
             )
         )
@@ -631,13 +647,6 @@ def _ranges(values: Iterable[int]) -> list[str]:
         previous = value
     result.append(str(start) if start == previous else f"{start}-{previous}")
     return result
-
-
-def _count_ranges(ranges: list[str]) -> int:
-    return sum(
-        int(value.split("-")[-1]) - int(value.split("-")[0]) + 1
-        for value in ranges
-    )
 
 
 def _modelled_range(residues: list[StructureResidue]) -> str:

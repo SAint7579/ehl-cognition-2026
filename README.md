@@ -54,3 +54,5 @@ sequence-to-structure mappings are `CALCULATED`. None of these results are
 experimental validation. Structure annotations also record warnings for
 unmodelled residues, numbering irregularities, alternate locations, and
 residues excluded or absent from DSSP.
+RSA is the raw Sander quotient and can exceed 1 for highly exposed residues,
+so such values are flagged rather than clipped.

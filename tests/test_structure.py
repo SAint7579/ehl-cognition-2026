@@ -56,7 +56,14 @@ def test_structure_cli_fixture_mapping_and_artifacts(tmp_path: Path) -> None:
     assert summary["secondary_structure"]["counts_3state"]["H"] > 0
     assert summary["secondary_structure"]["counts_3state"]["E"] > 0
     assert summary["residue_counts"]["dssp_annotated"] == 265
-    assert not any(w["code"] == "RSA_ABOVE_ONE" for w in summary["warnings"])
+    assert any(w["code"] == "RSA_ABOVE_ONE" for w in summary["warnings"])
+    rsa_above_one = {
+        item["author_residue"]
+        for item in annotations["annotations"]
+        if item["rsa"] > 1
+    }
+    assert rsa_above_one == {29, 293}
+    assert all(item["rsa"] is None or item["rsa"] < 2 for item in annotations["annotations"])
     hits = summary["foldseek_hits"]
     assert hits[0]["target"] == "5XJH"
     assert [hit["evalue"] for hit in hits] == sorted(hit["evalue"] for hit in hits)
@@ -90,7 +97,7 @@ def test_structure_cli_fixture_mapping_and_artifacts(tmp_path: Path) -> None:
     assert any(w["code"] == "ALTERNATE_LOCATION" for w in summary["warnings"])
     assert any(w["code"] == "RESIDUE_OUTSIDE_TARGET" for w in summary["warnings"])
     assert all(record["tool_version"] for record in summary["provenance"])
-    assert all(item["rsa"] is None or 0 <= item["rsa"] <= 1 for item in annotations["annotations"])
+    assert all(item["rsa"] is None or item["rsa"] >= 0 for item in annotations["annotations"])
     assert summary["numbering"]["mapping_quality"]["identity_fraction"] == 1.0
 
 
@@ -189,7 +196,7 @@ def test_structure_mapping_quality_rejects_unrelated_target(tmp_path: Path) -> N
     quality = summary["numbering"]["mapping_quality"]
     assert quality["identity_fraction"] < 0.9
     warning = next(w for w in summary["warnings"] if w["code"] == "LOW_MAPPING_IDENTITY")
-    assert warning["severity"] == "HIGH"
+    assert warning["severity"] == "ERROR"
 
 
 def test_5xjh_mapping_reports_author_numbering_exception(tmp_path: Path) -> None:

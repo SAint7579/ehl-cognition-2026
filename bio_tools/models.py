@@ -146,7 +146,7 @@ class RunArtifact(StrictModel):
 class StructureWarning(StrictModel):
     code: str
     message: str
-    severity: Literal["INFO", "WARNING", "HIGH", "ERROR"]
+    severity: Literal["INFO", "WARNING", "ERROR"]
 
 
 class StructureDeposition(StrictModel):
