@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install local CPU binaries used by bioctl / the job API.
+# Local CPU binaries for bioctl CLI / smoke tests only.
+# The product job API does not use these. Science runs in the Devin sandbox.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/.tools/bin"
@@ -28,3 +29,4 @@ echo "mmseqs:  $(command -v mmseqs || echo /opt/homebrew/bin/mmseqs)"
 echo "mafft:   $(command -v mafft || echo /opt/homebrew/bin/mafft)"
 echo "foldseek:$BIN/foldseek"
 echo "mkdssp:  $ROOT/.tools/conda/bin/mkdssp"
+echo "These binaries are for local bioctl smoke tests, not the job API."

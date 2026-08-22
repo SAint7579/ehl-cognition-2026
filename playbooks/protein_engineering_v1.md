@@ -15,10 +15,37 @@ an offline homolog FASTA database, a deposited structure file and chain, and
 the committed Foldseek reference structure directory. The procedure is CPU
 only and uses no database downloads or network access.
 
+## Runtime
+
+Run this playbook in the Devin Cloud Linux sandbox, not on the operator's
+laptop. The control-room API only creates a session, polls it, and copies
+attached artifacts. Do not ask the operator to run mmseqs, mafft, foldseek,
+mkdssp, or bioctl on their Mac.
+
+## Preferred operator command
+
+Use this only when the scientist asked for a protein investigation. Point
+`--target`, `--database`, `--structure`, and `--chain` at the protein they
+named, not at a default enzyme. Write a FASTA and fetch a deposited PDB when
+needed. The IsPETase files under `fixtures/` are a worked example, not the
+product target.
+
+```sh
+bioctl investigate --objective "<objective>" \
+  --target <target.fasta> \
+  --database <homologs.fasta> \
+  --structure <structure.pdb.gz> \
+  --chain <chain> \
+  --references fixtures/structures \
+  --out /tmp/ehl-investigate
+```
+
+Attach those JSON artifacts (by basename) to the session when finished.
+
 ## Procedure
 
-Run these commands in order, using the output of each stage as the next
-stage's input:
+The investigate command is equivalent to these stages, using the output of
+each as the next stage's input:
 
 ```sh
 bioctl run --target <target.fasta> --database <database.fasta> --out <out>/sequence

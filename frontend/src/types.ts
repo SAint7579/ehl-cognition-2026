@@ -25,6 +25,15 @@ export type ArtifactInfo = {
   bytes: number;
 };
 
+export type JobEvent = {
+  id: number;
+  type: string;
+  stage: string | null;
+  message: string;
+  artifact_id: string | null;
+  created_at: string;
+};
+
 export type Job = {
   id: string;
   title: string;
@@ -35,11 +44,22 @@ export type Job = {
   active_stage: string | null;
   error: string | null;
   include_structure: boolean;
+  devin_session_id: string | null;
+  session_url: string | null;
   created_at: string;
   updated_at: string;
   messages: Message[];
+  events: JobEvent[];
   artifacts: ArtifactInfo[];
   limitations: string[];
+};
+
+export type Health = {
+  status: "ok" | "not_configured";
+  runtime: string;
+  configured: boolean;
+  missing: string[];
+  snapshot_configured: boolean;
 };
 
 export type HomologHit = {
@@ -72,4 +92,21 @@ export type StructureSummary = {
   modelled_residue_count: number;
   deposition?: { pdb_id: string; experimental_method: string | null };
   foldseek_hits?: { target: string; alignment_tm_score: number }[];
+};
+
+export type CandidateSite = {
+  rank: number;
+  author_residue: number;
+  one_letter: string;
+  target_position: number;
+  score: number;
+  conservation: number;
+};
+
+export type FinalResult = {
+  limitations?: string[];
+  shortlists?: {
+    activity?: { sites?: CandidateSite[] };
+    stability?: { sites?: CandidateSite[] };
+  };
 };

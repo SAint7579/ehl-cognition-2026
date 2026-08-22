@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -12,6 +13,21 @@ class JobStore:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self.load()
+
+    def load(self) -> None:
+        if not settings.runs_dir.is_dir():
+            return
+        loaded: dict[str, Job] = {}
+        for path in settings.runs_dir.glob("*/job.json"):
+            try:
+                job = Job.model_validate_json(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            loaded[job.id] = job
+        with self._lock:
+            self._jobs.update(loaded)
+        self._restore_last_session()
 
     def create(self, objective: str, title: str | None, include_structure: bool) -> Job:
         now = datetime.now(timezone.utc)
@@ -26,7 +42,7 @@ class JobStore:
         )
         with self._lock:
             self._jobs[job.id] = job
-        (settings.runs_dir / job.id).mkdir(parents=True, exist_ok=True)
+        self._persist(job)
         return job.model_copy(deep=True)
 
     def get(self, job_id: str) -> Job | None:
@@ -43,7 +59,8 @@ class JobStore:
             job = self._jobs[job_id]
             updated = job.model_copy(update={**fields, "updated_at": datetime.now(timezone.utc)})
             self._jobs[job_id] = updated
-            return updated.model_copy(deep=True)
+        self._persist(updated)
+        return updated.model_copy(deep=True)
 
     def add_message(self, job_id: str, message: Message) -> Job:
         with self._lock:
@@ -53,7 +70,8 @@ class JobStore:
                 update={"messages": messages, "updated_at": datetime.now(timezone.utc)}
             )
             self._jobs[job_id] = updated
-            return updated.model_copy(deep=True)
+        self._persist(updated)
+        return updated.model_copy(deep=True)
 
     def add_event(self, job_id: str, event: Event) -> Job:
         with self._lock:
@@ -67,7 +85,54 @@ class JobStore:
                 }
             )
             self._jobs[job_id] = updated
-            return updated.model_copy(deep=True)
+        self._persist(updated)
+        return updated.model_copy(deep=True)
+
+    def _persist(self, job: Job) -> None:
+        directory = settings.runs_dir / job.id
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "job.json").write_text(job.model_dump_json(), encoding="utf-8")
+        if job.devin_session_id:
+            (settings.runs_dir / "last_session.json").write_text(
+                json.dumps(
+                    {
+                        "devin_session_id": job.devin_session_id,
+                        "session_url": job.session_url,
+                        "objective": job.objective,
+                        "title": job.title,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+    def _restore_last_session(self) -> None:
+        if self._jobs:
+            return
+        pointer = settings.runs_dir / "last_session.json"
+        if not pointer.is_file():
+            return
+        try:
+            data = json.loads(pointer.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        session_id = str(data.get("devin_session_id") or "").strip()
+        if not session_id:
+            return
+        now = datetime.now(timezone.utc)
+        job = Job(
+            id=uuid4().hex[:12],
+            title=str(data.get("title") or _title_from(str(data.get("objective") or "Investigation"))),
+            objective=str(data.get("objective") or "Continue the sandbox investigation."),
+            status=JobStatus.failed,
+            include_structure=True,
+            devin_session_id=session_id,
+            session_url=data.get("session_url"),
+            created_at=now,
+            updated_at=now,
+        )
+        with self._lock:
+            self._jobs[job.id] = job
+        self._persist(job)
 
 
 def _title_from(objective: str) -> str:

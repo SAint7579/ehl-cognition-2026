@@ -36,12 +36,19 @@ the hit count, alignment length, and top conserved target positions.
 
 ## Workspace API and UI
 
-The FastAPI layer turns a scientist objective into a **job**: conversation
-on the left, `bioctl` artifacts on the right. V1 runs the committed IsPETase
-fixtures locally (same code as `bioctl run` + `bioctl structure`). Devin can
-later replace that executor.
+The FastAPI layer is a **control room**, not a local scientific runtime. One
+objective becomes one Devin Cloud sandbox session (`protein-engineering-v1`).
+Devin runs `bioctl investigate` on a Linux VM; this laptop only creates the
+session, polls it, and copies attached artifacts into the right-hand pane.
+
+Copy `.env.example` and set a `cog_` service-user key plus org id. A snapshot
+that already has this repo and the CPU toolchain (`mmseqs`, `mafft`,
+`foldseek`, `mkdssp`) is strongly recommended:
 
 ```sh
+cp .env.example .env
+# DEVIN_API_KEY, DEVIN_ORG_ID, DEVIN_SNAPSHOT_ID
+set -a && source .env && set +a
 python -m pip install -e .
 python -m uvicorn backend.app.main:app --reload --port 8000
 ```
@@ -50,17 +57,16 @@ python -m uvicorn backend.app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Open http://127.0.0.1:5173. `POST /api/jobs` starts a run;
-`GET /api/jobs/{id}` and `/artifacts/{filename}` feed the UI.
+Open http://127.0.0.1:5173. `GET /api/health` reports whether Devin credentials
+are present. There is no local `bioctl` fallback for jobs; missing
+`DEVIN_API_KEY` / `DEVIN_ORG_ID` fails the job instead of running on the Mac.
 
-The API looks for `mmseqs`, `mafft`, `foldseek`, and `mkdssp` on PATH, plus
-`.tools/bin` and `.tools/conda/bin`. On this machine:
+`POST /api/jobs` opens a session. Follow-ups stay on that same session.
+`GET /api/jobs/{id}` and `/artifacts/{filename}` feed the UI once Devin
+attaches `conservation.json`, structure files, and `final_result.json`.
 
-```sh
-./scripts/bootstrap_tools.sh
-```
-
-`GET /api/health` reports any binaries that are still missing.
+Local `bioctl` smoke tests still use `./scripts/bootstrap_tools.sh` for CLI
+development only. That path is not the product.
 
 The structure smoke test is:
 

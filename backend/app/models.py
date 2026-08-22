@@ -28,6 +28,7 @@ class JobCreate(BaseModel):
     objective: str = Field(min_length=3, max_length=4000)
     title: str | None = None
     include_structure: bool = True
+    devin_session_id: str | None = Field(default=None, max_length=400)
 
 
 class MessageCreate(BaseModel):
@@ -78,6 +79,9 @@ class Job(BaseModel):
     active_stage: str | None = None
     error: str | None = None
     include_structure: bool = True
+    devin_session_id: str | None = None
+    session_url: str | None = None
+    seen_devin_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     messages: list[Message] = Field(default_factory=list)

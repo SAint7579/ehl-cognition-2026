@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gzip
+import json
 import mimetypes
 from pathlib import Path
 
@@ -15,6 +17,9 @@ ARTIFACT_FILES = (
     "run.json",
     "structure_summary.json",
     "residue_annotations.json",
+    "candidate_sites.json",
+    "final_result.json",
+    "structure.pdb",
 )
 
 
@@ -22,8 +27,26 @@ def job_dir(job_id: str) -> Path:
     return settings.runs_dir / job_id
 
 
+def ensure_structure_pdb(job_id: str) -> Path | None:
+    """Deposited 6EQE for the browser viewer. This is retrieved coordinates, not a fold."""
+    dest = job_dir(job_id) / "structure.pdb"
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest
+    source = settings.default_structure
+    if not source.is_file():
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if source.name.endswith(".gz"):
+        dest.write_bytes(gzip.decompress(source.read_bytes()))
+    else:
+        dest.write_bytes(source.read_bytes())
+    return dest if dest.is_file() else None
+
+
 def list_artifacts(job_id: str) -> list[ArtifactInfo]:
     directory = job_dir(job_id)
+    if (directory / "structure_summary.json").is_file() or (directory / "final_result.json").is_file():
+        ensure_structure_pdb(job_id)
     found: list[ArtifactInfo] = []
     for name in ARTIFACT_FILES:
         path = directory / name

@@ -1,10 +1,16 @@
 import type {
   ConservationColumn,
+  FinalResult,
+  Health,
   HomologHit,
   Job,
   ResidueAnnotation,
   StructureSummary,
 } from "./types";
+
+export function getHealth(): Promise<Health> {
+  return fetch("/api/health").then((r) => parse<Health>(r));
+}
 
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -14,12 +20,20 @@ async function parse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function listJobs(): Promise<Job[]> {
+  return fetch("/api/jobs").then((r) => parse<Job[]>(r));
+}
+
 export function createJob(objective: string): Promise<Job> {
   return fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ objective, include_structure: true }),
   }).then((r) => parse<Job>(r));
+}
+
+export function harvestJob(id: string): Promise<Job> {
+  return fetch(`/api/jobs/${id}/harvest`, { method: "POST" }).then((r) => parse<Job>(r));
 }
 
 export function getJob(id: string): Promise<Job> {
@@ -62,4 +76,16 @@ export function loadResidues(jobId: string): Promise<ResidueAnnotation[]> {
     jobId,
     "residue_annotations.json",
   ).then((data) => data?.annotations ?? []);
+}
+
+export function loadFinalResult(jobId: string): Promise<FinalResult | null> {
+  return loadJson<FinalResult>(jobId, "final_result.json");
+}
+
+export function loadStructurePdb(jobId: string): Promise<string | null> {
+  return fetch(`/api/jobs/${jobId}/artifacts/structure.pdb`).then((response) => {
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(response.statusText);
+    return response.text();
+  });
 }

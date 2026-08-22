@@ -1,220 +1,593 @@
-"""Run the committed bioctl stages for one job. Devin can replace this later."""
+"""Drive one Devin Cloud sandbox session per scientific job."""
 
 from __future__ import annotations
 
 import json
+import re
+import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel
-
-from bio_tools.pipeline import run_pipeline
-from bio_tools.provenance import write_json_model
-from bio_tools.structure import analyze_structure
-
-from backend.app.artifacts import job_dir, list_artifacts
+from backend.app.artifacts import ARTIFACT_FILES, job_dir, list_artifacts
+from backend.app.chatfilter import clean_body, is_internal
+from backend.app.devin import DevinClient, DevinError, SessionClient, normalize_session_ref
 from backend.app.models import JobStatus, Speaker
+from backend.app.prompt import follow_up_prompt, investigation_prompt
 from backend.app.settings import settings
 from backend.app.store import new_event, new_message, store
-from backend.app.tools import require_tools
 
-RunFn = Callable[..., object]
-StructureFn = Callable[..., tuple[object, object]]
+SleepFn = Callable[[float], None]
+NowFn = Callable[[], float]
+
+DONE_OK = frozenset({"exit", "finished", "complete", "completed", "suspended"})
+DONE_FAIL = frozenset({"error", "expired", "failed"})
+TURN_IDLE = frozenset({"waiting_for_user", "finished", "waiting_for_approval"})
+FAIL_DETAIL = frozenset({
+    "error",
+    "usage_limit_exceeded",
+    "out_of_credits",
+    "out_of_quota",
+    "no_quota_allocation",
+    "payment_declined",
+    "org_usage_limit_exceeded",
+    "user_usage_limit_exceeded",
+    "total_session_limit_exceeded",
+})
+STAGE_LABEL = {
+    "working": "Working in the sandbox",
+    "waiting_for_user": "Waiting for you",
+    "waiting_for_approval": "Waiting for approval in the sandbox",
+    "finished": "Finished this turn",
+    "new": "Starting the sandbox",
+    "claimed": "Claiming the sandbox",
+    "resuming": "Resuming the sandbox",
+    "homolog-search": "Searching homologs",
+    "conservation": "Computing conservation",
+    "structure": "Reading the deposited structure",
+    "rank": "Ranking candidate sites",
+    "follow-up": "Answering",
+    "import": "Pulling result files",
+    "sandbox": "Working in the sandbox",
+}
+FILE_LABEL = {
+    "homolog_search.json": "Homolog search results arrived",
+    "homologs.fasta": "Homolog sequences arrived",
+    "alignment.json": "Alignment finished",
+    "alignment.fasta": "Alignment sequences arrived",
+    "conservation.json": "Conservation scores arrived",
+    "run.json": "Run log arrived",
+    "structure_summary.json": "Structure summary arrived",
+    "residue_annotations.json": "Residue annotations arrived",
+    "candidate_sites.json": "Candidate-site rankings arrived",
+    "final_result.json": "Final result arrived",
+    "structure.pdb": "Structure coordinates arrived",
+}
+PROMPT_ECHO = "You are Devin running this investigation"
+ATTACHMENT_MARK = re.compile(r"ATTACHMENT:\{.*?\}(?:\s|$)", re.DOTALL)
+ATTACHMENT_URL = re.compile(
+    r"https://(?:app|api)\.devin\.ai/attachments/[0-9a-fA-F-]{36}/[A-Za-z0-9._-]+"
+)
+
+
+def get_client() -> SessionClient:
+    return DevinClient.from_env()
 
 
 def run_job(
     job_id: str,
     *,
-    pipeline: RunFn | None = None,
-    structure: StructureFn | None = None,
+    client: SessionClient | None = None,
+    sleep: SleepFn = time.sleep,
+    now: NowFn = time.monotonic,
 ) -> None:
-    pipeline_fn = pipeline or run_pipeline
-    structure_fn = structure or analyze_structure
     job = store.get(job_id)
     if job is None:
         return
-    out = job_dir(job_id)
     try:
-        require_tools(job.include_structure)
-        store.update(job_id, status=JobStatus.running, active_agent=Speaker.planner, active_stage="plan")
-        store.add_event(job_id, new_event("job.started", "Investigation started", "plan"))
-        store.add_message(
-            job_id,
-            new_message(
-                Speaker.planner,
-                (
-                    f"Job: {job.objective.strip()} "
-                    "I will run the CPU-only bioctl path on the committed IsPETase fixtures: "
-                    "MMseqs2 → MAFFT → conservation"
-                    + (", then retrieve PDB 6EQE for structure mapping." if job.include_structure else ".")
-                    + " I will not claim experimental heat-resistance."
-                ),
-                stage="plan",
-            ),
-        )
-
-        store.update(job_id, active_agent=Speaker.search, active_stage="homolog-search")
-        store.add_event(job_id, new_event("stage.started", "Running MMseqs2 + MAFFT + conservation", "homolog-search"))
-        run = pipeline_fn(
-            settings.default_target,
-            settings.default_database,
-            out,
-            settings.threads,
-        )
-        store.add_event(
-            job_id,
-            new_event("artifact.ready", "Homolog search finished", "homolog-search", "art_homolog_search"),
-        )
-        store.add_event(
-            job_id,
-            new_event("artifact.ready", "Conservation finished", "conservation", "art_conservation"),
-        )
-        hits = _count_hits(out / "homolog_search.json")
-        triad = _triad_conservation(out / "conservation.json")
-        store.add_message(
-            job_id,
-            new_message(
-                Speaker.search,
-                (
-                    f"MMseqs2 returned {hits} homologs against the local PETase-family fixture DB. "
-                    f"Conservation marks the catalytic triad "
-                    f"{triad or 'S160 / D206 / H237'} as highly conserved. "
-                    "Evidence is CALCULATED, not experimental."
-                ),
-                stage="conservation",
-                artifact_ids=["art_homolog_search", "art_conservation"],
-            ),
-        )
-        store.add_event(job_id, new_event("stage.complete", "Sequence stages complete", "conservation"))
-
-        limitations = list(getattr(run, "limitations", []) or [])
-        if job.include_structure:
-            store.update(job_id, active_agent=Speaker.structure, active_stage="structure")
-            store.add_event(job_id, new_event("stage.started", "Mapping PDB 6EQE + Foldseek/DSSP", "structure"))
-            summary, annotations = structure_fn(
-                settings.default_structure,
-                settings.default_chain,
-                settings.default_target,
-                out,
-                settings.default_references,
-                out / "conservation.json",
-                settings.threads,
-            )
-            if isinstance(summary, BaseModel):
-                write_json_model(out / "structure_summary.json", summary)
-            if isinstance(annotations, BaseModel):
-                write_json_model(out / "residue_annotations.json", annotations)
-            modelled = getattr(summary, "modelled_residue_count", None)
-            pdb_id = getattr(getattr(summary, "deposition", None), "pdb_id", "6EQE")
-            store.add_event(
-                job_id,
-                new_event("artifact.ready", "Structure annotations ready", "structure", "art_residue_annotations"),
-            )
+        session_client = client or get_client()
+        store.update(job_id, status=JobStatus.running, active_agent=Speaker.planner, active_stage="sandbox")
+        if job.devin_session_id:
+            session_id, session_url = normalize_session_ref(job.devin_session_id)
+            store.update(job_id, devin_session_id=session_id, session_url=job.session_url or session_url)
+            store.add_event(job_id, new_event("job.started", "Importing existing Devin sandbox session", "sandbox"))
             store.add_message(
                 job_id,
                 new_message(
-                    Speaker.structure,
-                    (
-                        f"Retrieved {pdb_id} chain {settings.default_chain} "
-                        f"({modelled or 'n/a'} modelled residues). "
-                        "Coordinates are KNOWN (deposited). DSSP/Foldseek mappings are CALCULATED. "
-                        "Catalytic triad author residues 160 / 206 / 237 map onto the target."
-                    ),
-                    stage="structure",
-                    artifact_ids=["art_structure_summary", "art_residue_annotations"],
+                    Speaker.system,
+                    "Restoring results from the sandbox.",
+                    stage="sandbox",
                 ),
             )
-            limitations.extend(getattr(summary, "limitations", []) or [])
-            store.add_event(job_id, new_event("stage.complete", "Structure stage complete", "structure"))
-
+            _finish_from_session(job_id, session_client, session_id, sleep, now, wait=False)
+            return
+        store.add_event(job_id, new_event("job.started", "Opening Devin Cloud sandbox", "sandbox"))
+        session = session_client.create_session(investigation_prompt(job.objective), job.title)
+        session_id = str(session.get("session_id") or "")
+        session_url = str(session.get("url") or "")
+        if not session_id:
+            raise DevinError("Devin did not return a session_id")
+        store.update(job_id, devin_session_id=session_id, session_url=session_url or None)
         store.add_message(
             job_id,
             new_message(
-                Speaker.design,
-                (
-                    "This slice stops at evidence, not a designed mutant table. "
-                    "Use the conservation heatmap and 6EQE mapping to inspect constrained vs variable "
-                    "positions. Ask a follow-up if you want a residue explained."
-                ),
-                stage="rank",
-                artifact_ids=["art_conservation", "art_residue_annotations"]
-                if job.include_structure
-                else ["art_conservation"],
+                Speaker.system,
+                "Working in the sandbox.",
+                stage="sandbox",
             ),
         )
-        store.update(
-            job_id,
-            status=JobStatus.complete,
-            active_agent=None,
-            active_stage=None,
-            artifacts=list_artifacts(job_id),
-            limitations=list(dict.fromkeys(limitations)),
-        )
-        store.add_event(job_id, new_event("job.complete", "Investigation complete"))
+        _finish_from_session(job_id, session_client, session_id, sleep, now, wait=True)
     except Exception as error:
         store.update(
             job_id,
             status=JobStatus.failed,
             error=str(error),
             active_agent=None,
+            active_stage=None,
             artifacts=list_artifacts(job_id),
         )
         store.add_event(job_id, new_event("job.failed", str(error)))
-        store.add_message(
-            job_id,
-            new_message(Speaker.system, f"Pipeline failed: {error}", stage="error"),
-        )
+        store.add_message(job_id, new_message(Speaker.system, f"Sandbox job failed: {error}", stage="error"))
 
 
-def answer_follow_up(job_id: str, body: str) -> None:
-    text = body.lower()
+def answer_follow_up(
+    job_id: str,
+    body: str,
+    *,
+    client: SessionClient | None = None,
+    sleep: SleepFn = time.sleep,
+    now: NowFn = time.monotonic,
+) -> None:
     job = store.get(job_id)
     if job is None:
         return
-    store.add_message(job_id, new_message(Speaker.user, body.strip()))
-    artifacts = [item.id for item in job.artifacts]
-    if "10" in text and ("å" in text or "angstrom" in text or "catalytic" in text):
-        reply = (
-            "Constraint noted. This slice does not yet rewrite a ranked mutant list. "
-            "On the structure panel, treat residues with a short distance to 160/206/237 "
-            "as protected; I will not propose those as heat-stability candidates."
+    session_id = job.devin_session_id
+    if not session_id:
+        store.add_message(
+            job_id,
+            new_message(Speaker.system, "No Devin sandbox session is attached to this job.", stage="error"),
         )
-        cites = [aid for aid in artifacts if "residue" in aid or "conservation" in aid]
-    elif "why" in text or "how" in text or "explain" in text:
-        reply = (
-            "Decisions in this job come from bioctl artifacts, not chat memory. "
-            "Homologs and conservation are CALCULATED from MMseqs2/MAFFT. "
-            "6EQE is a retrieved PDB structure. The triad is conserved at 1.0 on the fixture MSA. "
-            "Nothing here is a wet-lab +30% heat-stability result."
+        return
+    try:
+        session_client = client or get_client()
+        store.update(job_id, status=JobStatus.running, active_agent=Speaker.reviewer, active_stage="follow-up")
+        store.add_event(job_id, new_event("stage.started", "Sending follow-up to the sandbox", "follow-up"))
+        session_client.send_message(session_id, follow_up_prompt(body))
+        _finish_from_session(
+            job_id,
+            session_client,
+            session_id,
+            sleep,
+            now,
+            wait=True,
+            wait_for_new_work=True,
+            complete_message="Follow-up complete",
         )
-        cites = artifacts[:4]
+    except Exception as error:
+        store.update(
+            job_id,
+            status=JobStatus.failed,
+            error=str(error),
+            active_agent=None,
+            active_stage=None,
+            artifacts=list_artifacts(job_id),
+        )
+        store.add_event(job_id, new_event("job.failed", str(error)))
+        store.add_message(job_id, new_message(Speaker.system, f"Follow-up failed: {error}", stage="error"))
+
+
+def import_session(
+    job_id: str,
+    *,
+    client: SessionClient | None = None,
+    sleep: SleepFn = time.sleep,
+    now: NowFn = time.monotonic,
+) -> None:
+    job = store.get(job_id)
+    if job is None or not job.devin_session_id:
+        return
+    try:
+        session_client = client or get_client()
+        session_id, session_url = normalize_session_ref(job.devin_session_id)
+        store.update(
+            job_id,
+            status=JobStatus.running,
+            active_agent=Speaker.reviewer,
+            active_stage="import",
+            session_url=job.session_url or session_url,
+            error=None,
+        )
+        store.add_event(job_id, new_event("stage.started", "Pulling artifacts from the sandbox", "import"))
+        _finish_from_session(job_id, session_client, session_id, sleep, now, wait=False, complete_message="Imported sandbox artifacts")
+    except Exception as error:
+        store.update(
+            job_id,
+            status=JobStatus.failed,
+            error=str(error),
+            active_agent=None,
+            active_stage=None,
+            artifacts=list_artifacts(job_id),
+        )
+        store.add_event(job_id, new_event("job.failed", str(error)))
+        store.add_message(job_id, new_message(Speaker.system, f"Import failed: {error}", stage="error"))
+
+
+def resume_running_jobs() -> None:
+    for job in store.list():
+        if job.status != JobStatus.running or not job.devin_session_id:
+            continue
+        try:
+            client = get_client()
+            session_id, session_url = normalize_session_ref(job.devin_session_id)
+            store.update(job.id, session_url=job.session_url or session_url)
+            _finish_from_session(
+                job.id,
+                client,
+                session_id,
+                time.sleep,
+                time.monotonic,
+                wait=True,
+                wait_for_new_work=False,
+                complete_message="Sandbox turn complete",
+            )
+        except Exception as error:
+            store.update(
+                job.id,
+                status=JobStatus.failed,
+                error=str(error),
+                active_agent=None,
+                active_stage=None,
+                artifacts=list_artifacts(job.id),
+            )
+            store.add_event(job.id, new_event("job.failed", str(error)))
+
+
+def sync_job(job_id: str) -> None:
+    job = store.get(job_id)
+    if job is None or job.status != JobStatus.running or not job.devin_session_id:
+        return
+    try:
+        client = get_client()
+        session_id, _ = normalize_session_ref(job.devin_session_id)
+        session = client.get_session(session_id)
+    except Exception:
+        return
+    status, detail = _status_fields(session)
+    _set_stage(job_id, status, detail)
+    try:
+        _ingest_messages(job_id, client, session_id)
+        _harvest(job_id, client, session_id, session, {})
+    except Exception:
+        pass
+    if _is_failed(status, detail):
+        return
+    if _turn_complete(status, detail) and _assistant_replied_since_user(job_id):
+        _complete_job(job_id, "Sandbox turn complete")
+
+
+def _finish_from_session(
+    job_id: str,
+    client: SessionClient,
+    session_id: str,
+    sleep: SleepFn,
+    now: NowFn,
+    *,
+    wait: bool,
+    wait_for_new_work: bool = False,
+    complete_message: str = "Sandbox investigation complete",
+) -> None:
+    if wait:
+        _await_session(job_id, client, session_id, sleep, now, wait_for_new_work=wait_for_new_work)
     else:
-        reply = (
-            "Still the same job. The right pane is the latest bioctl output. "
-            "Ask about a residue, the homolog set, or why a position looks constrained."
-        )
-        cites = artifacts[:3]
-    store.add_message(
+        session = client.get_session(session_id)
+        _ingest_messages(job_id, client, session_id)
+        _harvest(job_id, client, session_id, session, {})
+    _complete_job(job_id, complete_message)
+
+
+def _complete_job(job_id: str, complete_message: str) -> None:
+    job = store.get(job_id)
+    if job is None or job.status == JobStatus.complete:
+        return
+    artifacts = list_artifacts(job_id)
+    limitations = _limitations(job_id)
+    if not _has_science(artifacts) and "No result files arrived from this turn." not in limitations:
+        limitations = [*limitations, "No result files arrived from this turn."]
+    store.update(
         job_id,
-        new_message(Speaker.reviewer, reply, artifact_ids=cites),
+        status=JobStatus.complete,
+        active_agent=None,
+        active_stage=None,
+        artifacts=artifacts,
+        limitations=limitations,
+        error=None,
+    )
+    store.add_event(job_id, new_event("job.complete", complete_message))
+
+
+def _await_session(
+    job_id: str,
+    client: SessionClient,
+    session_id: str,
+    sleep: SleepFn,
+    now: NowFn,
+    *,
+    wait_for_new_work: bool,
+) -> None:
+    deadline = now() + settings.poll_timeout_seconds
+    known_bytes: dict[str, int] = {}
+    last_stage = ""
+    saw_work = False
+    new_reply = False
+    job = store.get(job_id)
+    seen_before = set(job.seen_devin_ids) if job else set()
+    while now() < deadline:
+        session = client.get_session(session_id)
+        status, detail = _status_fields(session)
+        stage = detail or status
+        if stage and stage != last_stage:
+            _set_stage(job_id, status, detail)
+            last_stage = stage
+        if _is_working(status, detail):
+            saw_work = True
+        _ingest_messages(job_id, client, session_id)
+        current = store.get(job_id)
+        if current and set(current.seen_devin_ids) - seen_before:
+            new_reply = True
+        known_bytes = _harvest(job_id, client, session_id, session, known_bytes)
+        if _is_failed(status, detail):
+            raise DevinError(session.get("error") or session.get("message") or detail or status)
+        if _turn_complete(status, detail):
+            replied = _assistant_replied_since_user(job_id)
+            if wait_for_new_work and not (saw_work or new_reply or replied):
+                sleep(settings.poll_interval_seconds)
+                continue
+            try:
+                _ingest_messages(job_id, client, session_id)
+                _harvest(job_id, client, session_id, session, known_bytes)
+            except Exception:
+                pass
+            return
+        sleep(settings.poll_interval_seconds)
+    raise DevinError(
+        f"Timed out after {int(settings.poll_timeout_seconds)}s waiting for the Devin sandbox."
     )
 
 
-def _count_hits(path: Path) -> int:
-    if not path.is_file():
-        return 0
-    data = json.loads(path.read_text())
-    return len(data.get("hits") or [])
+def _status_fields(session: dict[str, Any]) -> tuple[str, str]:
+    status = str(session.get("status") or session.get("status_enum") or session.get("state") or "").lower()
+    detail = str(session.get("status_detail") or "").lower()
+    return status, detail
 
 
-def _triad_conservation(path: Path) -> str:
+def _is_failed(status: str, detail: str) -> bool:
+    return status in DONE_FAIL or detail in FAIL_DETAIL
+
+
+def _turn_complete(status: str, detail: str) -> bool:
+    if status in DONE_OK:
+        return True
+    if detail in TURN_IDLE:
+        return True
+    return False
+
+
+def _is_working(status: str, detail: str) -> bool:
+    if detail == "working":
+        return True
+    return status in {"new", "claimed", "resuming"}
+
+
+def _assistant_replied_since_user(job_id: str) -> bool:
+    job = store.get(job_id)
+    if job is None:
+        return False
+    last_user = None
+    last_assistant = None
+    for message in job.messages:
+        if message.speaker == Speaker.user:
+            last_user = message.created_at
+        elif message.speaker != Speaker.system:
+            last_assistant = message.created_at
+    if last_assistant is None:
+        return False
+    if last_user is None:
+        return True
+    return last_assistant >= last_user
+
+
+def _set_stage(job_id: str, status: str, detail: str) -> None:
+    job = store.get(job_id)
+    stage = detail or status or "working"
+    if job is not None and job.active_stage == stage:
+        return
+    label = STAGE_LABEL.get(stage, STAGE_LABEL.get("working", "Working in the sandbox"))
+    store.update(job_id, active_stage=stage)
+    store.add_event(job_id, new_event("stage.started", label, stage))
+
+
+def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> None:
+    job = store.get(job_id)
+    if job is None:
+        return
+    seen = set(job.seen_devin_ids)
+    for raw in client.list_messages(session_id):
+        kind = str(raw.get("type") or raw.get("role") or "").lower()
+        if kind in {"user_message", "user"}:
+            continue
+        text = _message_text(raw)
+        parsed = _chat_message(text)
+        if parsed is None:
+            continue
+        speaker, body = parsed
+        key = str(raw.get("id") or raw.get("message_id") or f"{speaker.value}:{body[:120]}")
+        if key in seen:
+            continue
+        seen.add(key)
+        store.add_message(job_id, new_message(speaker, body, stage=_stage_for(speaker)))
+    store.update(job_id, seen_devin_ids=sorted(seen), active_agent=_latest_agent(job_id))
+
+
+def _harvest(
+    job_id: str,
+    client: SessionClient,
+    session_id: str,
+    session: dict[str, Any],
+    known_bytes: dict[str, int],
+) -> dict[str, int]:
+    out = job_dir(job_id)
+    out.mkdir(parents=True, exist_ok=True)
+    pending: list[tuple[str, str]] = []
+    for item in client.list_attachments(session_id):
+        name = str(item.get("name") or item.get("filename") or "")
+        basename = Path(name).name
+        url = item.get("url") or item.get("download_url")
+        if basename in ARTIFACT_FILES and url:
+            pending.append((basename, str(url)))
+    for raw in client.list_messages(session_id):
+        for url in ATTACHMENT_URL.findall(_message_text(raw)):
+            basename = Path(url).name
+            if basename in ARTIFACT_FILES:
+                pending.append((basename, url))
+    seen_urls: set[str] = set()
+    for basename, url in pending:
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        try:
+            data = client.download(url)
+        except Exception as error:
+            store.add_event(
+                job_id,
+                new_event("agent.error", f"{basename}: {error}", _stage_for_file(basename)),
+            )
+            continue
+        known_bytes = _write_artifact(job_id, out, basename, data, known_bytes)
+    payload = session.get("structured_output")
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            basename = Path(str(key)).name
+            if basename not in ARTIFACT_FILES:
+                continue
+            if isinstance(value, (dict, list)):
+                data = json.dumps(value).encode("utf-8")
+            elif isinstance(value, str):
+                data = value.encode("utf-8")
+            else:
+                continue
+            known_bytes = _write_artifact(job_id, out, basename, data, known_bytes)
+    store.update(job_id, artifacts=list_artifacts(job_id), limitations=_limitations(job_id))
+    return known_bytes
+
+
+def _write_artifact(
+    job_id: str,
+    out: Path,
+    basename: str,
+    data: bytes,
+    known_bytes: dict[str, int],
+) -> dict[str, int]:
+    if known_bytes.get(basename) == len(data) and (out / basename).is_file():
+        return known_bytes
+    (out / basename).write_bytes(data)
+    known_bytes[basename] = len(data)
+    store.add_event(
+        job_id,
+        new_event(
+            "artifact.ready",
+            FILE_LABEL.get(basename, f"{basename} arrived"),
+            _stage_for_file(basename),
+            f"art_{Path(basename).stem}",
+        ),
+    )
+    return known_bytes
+
+
+def _message_text(raw: dict[str, Any]) -> str:
+    for key in ("message", "content", "text", "body"):
+        value = raw.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _chat_message(text: str) -> tuple[Speaker, str] | None:
+    if is_internal(text):
+        return None
+    speaker, body = _speaker_and_body(text)
+    body = clean_body(body)
+    if not body or is_internal(body):
+        return None
+    if speaker == Speaker.system:
+        return None
+    return speaker, body
+
+
+def _speaker_and_body(text: str) -> tuple[Speaker, str]:
+    stripped = text.strip()
+    mapping = (
+        ("[planner]", Speaker.planner),
+        ("[search]", Speaker.search),
+        ("[structure]", Speaker.structure),
+        ("[design]", Speaker.design),
+        ("[reviewer]", Speaker.reviewer),
+        ("[system]", Speaker.system),
+    )
+    lowered = stripped.lower()
+    for prefix, speaker in mapping:
+        if lowered.startswith(prefix):
+            return speaker, stripped[len(prefix) :].strip()
+    return Speaker.planner, stripped
+
+
+def _stage_for(speaker: Speaker) -> str:
+    return {
+        Speaker.planner: "plan",
+        Speaker.search: "homolog-search",
+        Speaker.structure: "structure",
+        Speaker.design: "rank",
+        Speaker.reviewer: "review",
+        Speaker.system: "sandbox",
+        Speaker.user: "follow-up",
+    }.get(speaker, "sandbox")
+
+
+def _stage_for_file(filename: str) -> str:
+    if filename.startswith("structure") or filename.startswith("residue"):
+        return "structure"
+    if filename in {"candidate_sites.json", "final_result.json"}:
+        return "rank"
+    if filename == "conservation.json":
+        return "conservation"
+    return "homolog-search"
+
+
+def _latest_agent(job_id: str) -> Speaker | None:
+    job = store.get(job_id)
+    if job is None:
+        return None
+    for message in reversed(job.messages):
+        if message.speaker not in {Speaker.user, Speaker.system}:
+            return message.speaker
+    return Speaker.planner
+
+
+def _has_science(artifacts: list[Any]) -> bool:
+    names = {item.filename for item in artifacts}
+    return bool(names & {"conservation.json", "final_result.json", "homolog_search.json"})
+
+
+def _limitations(job_id: str) -> list[str]:
+    path = job_dir(job_id) / "final_result.json"
     if not path.is_file():
-        return ""
-    data = json.loads(path.read_text())
-    wanted = {160, 206, 237}
-    found: list[str] = []
-    for column in data.get("columns") or []:
-        pos = column.get("target_position")
-        if pos in wanted and column.get("conservation") is not None:
-            found.append(f"{column.get('target_residue')}{pos}={column['conservation']:.2f}")
-    return ", ".join(found)
+        return [
+            "All reported evidence is retrieved or calculated; none is experimental validation.",
+        ]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    values = data.get("limitations") if isinstance(data, dict) else None
+    if isinstance(values, list):
+        return [str(item) for item in values]
+    return []
