@@ -344,6 +344,7 @@ def analyze_structure(
     )
     annotation_artifact = ResidueAnnotationsArtifact(
         structure_id=summary.structure_id,
+        target_id=target.id,
         chain=chain_id,
         annotations=[
             ResidueAnnotation(

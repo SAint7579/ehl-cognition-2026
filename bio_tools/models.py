@@ -238,6 +238,7 @@ class ResidueAnnotation(StrictModel):
 class ResidueAnnotationsArtifact(StrictModel):
     schema_version: str = SCHEMA_VERSION
     structure_id: str
+    target_id: str
     chain: str
     annotations: list[ResidueAnnotation]
     warnings: list[StructureWarning]
@@ -261,4 +262,63 @@ class StructureSummaryArtifact(StrictModel):
     reverse_index: list[ReverseIndexEntry]
     warnings: list[StructureWarning]
     provenance: list[ProvenanceRecord]
+    limitations: list[str]
+
+
+class CandidateSubstitutionOption(StrictModel):
+    residue: str
+    count: int
+    frequency: float
+    source: Literal["observed_in_homologs"]
+    evidence_type: Literal["CALCULATED"] = "CALCULATED"
+
+
+class CandidateSubScores(StrictModel):
+    proximity: float
+    remoteness: float
+    burial: float
+    exposure: float
+    plasticity: float
+    variability: float
+    loop: float
+    evidence_type: Literal["CALCULATED"] = "CALCULATED"
+
+
+class CandidateSite(StrictModel):
+    author_residue: int
+    insertion_code: str | None
+    structure_index: int
+    target_position: int
+    msa_column: int | None
+    one_letter: str
+    conservation: float
+    rsa: float
+    secondary_structure: str | None
+    distance_to_active_site_angstrom: float
+    sub_scores: CandidateSubScores
+    score: float
+    rank: int
+    substitution_options: list[CandidateSubstitutionOption]
+    evidence_type: Literal["CALCULATED"] = "CALCULATED"
+
+
+class CandidateShortlist(StrictModel):
+    objective: str
+    filters: dict[str, str]
+    weights: dict[str, float]
+    n_sites: int
+    sites: list[CandidateSite]
+    evidence_type: Literal["CALCULATED"] = "CALCULATED"
+
+
+class CandidateSitesArtifact(StrictModel):
+    schema_version: str = SCHEMA_VERSION
+    target_id: str
+    provenance: ProvenanceRecord
+    parameters: dict[str, Any]
+    feature_definitions: dict[str, str]
+    score_definitions: dict[str, str]
+    shortlists: dict[Literal["activity", "stability"], CandidateShortlist]
+    warnings: list[StructureWarning]
+    evidence_type: Literal["CALCULATED"] = "CALCULATED"
     limitations: list[str]

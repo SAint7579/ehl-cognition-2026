@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from .candidates import analyze_candidates
 from .conservation import analyze_alignment
 from .homology import run_homolog_search
 from .msa import run_msa
@@ -51,6 +52,17 @@ def _parser() -> argparse.ArgumentParser:
     structure.add_argument("--references", required=True, type=Path)
     structure.add_argument("--out", required=True, type=Path)
     structure.add_argument("--threads", type=int)
+
+    candidates = subparsers.add_parser("candidates", help="rank candidate engineering sites")
+    candidates.add_argument("--annotations", required=True, type=Path)
+    candidates.add_argument("--structure", required=True, type=Path)
+    candidates.add_argument("--chain", required=True)
+    candidates.add_argument("--alignment", type=Path)
+    candidates.add_argument("--catalytic-residue", type=int, default=160)
+    candidates.add_argument("--catalytic-atom", default="OG")
+    candidates.add_argument("--exclude", default="160,206,237")
+    candidates.add_argument("--top", type=int, default=15)
+    candidates.add_argument("--out", required=True, type=Path)
     return parser
 
 
@@ -78,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             artifact = analyze_alignment(args.alignment, args.target_id)
             _write(args.out / "conservation.json", artifact)
             print(f"conservation complete: {artifact.summary.informative_columns} informative columns")
-        else:
+        elif args.command == "structure":
             summary, annotations = analyze_structure(
                 args.structure,
                 args.chain,
@@ -91,6 +103,25 @@ def main(argv: list[str] | None = None) -> int:
             _write(args.out / "structure_summary.json", summary)
             _write(args.out / "residue_annotations.json", annotations)
             print(f"structure complete: {summary.modelled_residue_count} modelled residues")
+        else:
+            exclude = _parse_exclude(args.exclude)
+            artifact = analyze_candidates(
+                args.annotations,
+                args.structure,
+                args.chain,
+                args.out,
+                args.alignment,
+                args.catalytic_residue,
+                args.catalytic_atom,
+                exclude,
+                args.top,
+            )
+            _write(args.out / "candidate_sites.json", artifact)
+            print(
+                "candidates complete: "
+                f"{artifact.shortlists['activity'].n_sites} activity, "
+                f"{artifact.shortlists['stability'].n_sites} stability sites"
+            )
     except (OSError, ValueError, RuntimeError) as error:
         print(f"bioctl: {error}", file=sys.stderr)
         return 1
@@ -99,6 +130,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def _write(path: Path, model: ModelT) -> ModelT:
     return write_json_model(path, model)
+
+
+def _parse_exclude(value: str) -> list[int]:
+    try:
+        return [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as error:
+        raise ValueError(f"invalid --exclude list: {value!r}") from error
 
 
 if __name__ == "__main__":

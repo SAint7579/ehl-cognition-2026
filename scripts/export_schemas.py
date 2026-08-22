@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bio_tools.models import (
     AlignmentArtifact,
+    CandidateSitesArtifact,
     ConservationArtifact,
     HomologSearchArtifact,
     ResidueAnnotationsArtifact,
@@ -27,6 +28,7 @@ SCHEMAS = {
     "run": RunArtifact,
     "structure_summary": StructureSummaryArtifact,
     "residue_annotations": ResidueAnnotationsArtifact,
+    "candidate_sites": CandidateSitesArtifact,
 }
 
 

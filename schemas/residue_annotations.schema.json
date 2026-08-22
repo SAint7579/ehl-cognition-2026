@@ -233,6 +233,10 @@
       "title": "Structure Id",
       "type": "string"
     },
+    "target_id": {
+      "title": "Target Id",
+      "type": "string"
+    },
     "warnings": {
       "items": {
         "$ref": "#/$defs/StructureWarning"
@@ -243,6 +247,7 @@
   },
   "required": [
     "structure_id",
+    "target_id",
     "chain",
     "annotations",
     "warnings",

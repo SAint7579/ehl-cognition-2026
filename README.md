@@ -56,3 +56,40 @@ unmodelled residues, numbering irregularities, alternate locations, and
 residues excluded or absent from DSSP.
 RSA is the raw Sander quotient and can exceed 1 for highly exposed residues,
 so such values are flagged rather than clipped.
+
+## Candidate-site ranking
+
+The candidate stage consumes the structure annotations and sequence alignment
+artifacts and writes `candidate_sites.json`. It produces two separate,
+transparent heuristic shortlists:
+
+- `activity` ranks substrate-cleft sites with
+  `d <= 12.0`, `conservation < 0.98`, and `rsa < 0.50`.
+  Its score is
+  `0.50 * proximity + 0.30 * plasticity + 0.20 * burial`.
+- `stability` ranks surface sites away from the active site with
+  `d >= 12.0`, `conservation < 0.90`, and `rsa >= 0.25`.
+  Its score is
+  `0.35 * exposure + 0.30 * variability + 0.20 * remoteness + 0.15 * loop`.
+
+The shared feature definitions are `lin(x, lo, hi) = clamp((x - lo) /
+(hi - lo), 0, 1)`, `proximity = 1 - lin(d, 4.0, 12.0)`,
+`remoteness = lin(d, 12.0, 25.0)`, `burial = 1 - lin(rsa, 0.0, 0.5)`,
+`exposure = lin(rsa, 0.0, 0.5)`,
+`plasticity = 1 - lin(conservation, 0.60, 0.98)`,
+`variability = 1 - lin(conservation, 0.50, 0.90)`, and `loop = 1.0` for
+coil (`C`) and `0.0` otherwise. Fully conserved sites are excluded because
+the activity and stability filters require sequence variability, and the
+catalytic triad is excluded by default to protect the catalytic residues.
+
+Substitution options are observed residues in the homolog alignment only:
+non-gap alternatives occurring at least twice and at frequency at least
+`0.15`. They are not predictions, recommendations, or beneficial-effect
+claims. The candidate rankings are not predictions of activity or stability,
+carry no effect estimate, and are not experimental validation.
+
+The candidate smoke test is:
+
+```sh
+./scripts/candidate_smoke_test.sh
+```
