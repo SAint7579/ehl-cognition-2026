@@ -13,6 +13,9 @@ artifacts (`homolog_search.json`, `alignment.json`, `conservation.json`, and
 committed JSON Schema under `schemas/` and includes tool/file provenance.
 MMseqs2 percent identity is reported on a 0-100 scale. The MMseqs2 and MAFFT
 parameters used for each run are recorded in its provenance.
+Each stage records digests of its inputs, while the run manifest records
+digests of every artifact file produced, since an artifact cannot contain its
+own hash.
 
 Evidence is labeled `KNOWN` for the pinned UniProt fixture/database
 sequences, `CALCULATED` for direct MMseqs2/MAFFT/conservation output, and

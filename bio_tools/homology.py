@@ -124,9 +124,9 @@ def run_homolog_search(
     )
     if provenance.exit_code != 0:
         raise RuntimeError(f"mmseqs homolog search failed: {provenance.stderr.strip()}")
-    hits = parse_m8(m8_path, records)
     # Keep the temporary directory on subprocess failure for debugging.
     shutil.rmtree(tmp_dir)
+    hits = parse_m8(m8_path, records)
     hit_records = [records[hit.accession] for hit in hits if hit.accession in records]
     target_record = records.get(target_key, target)
     if target_record.id not in {record.id for record in hit_records}:

@@ -138,6 +138,13 @@
     "StageArtifact": {
       "additionalProperties": false,
       "properties": {
+        "artifact_digests": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Artifact Digests",
+          "type": "array"
+        },
         "artifact_paths": {
           "items": {
             "type": "string"
@@ -169,6 +176,7 @@
         "stage",
         "status",
         "artifact_paths",
+        "artifact_digests",
         "provenance"
       ],
       "title": "StageArtifact",

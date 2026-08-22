@@ -12,6 +12,7 @@ from bio_tools.models import (
     SCHEMA_VERSION,
 )
 from bio_tools.pipeline import run_pipeline
+from bio_tools.provenance import file_digest
 from bio_tools.versions import tool_version
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +70,12 @@ def test_real_pipeline_on_committed_fixtures(tmp_path: Path) -> None:
         for stage in run["stages"]
         for record in stage["provenance"]
     )
+    for stage in run["stages"]:
+        assert stage["artifact_digests"]
+        for digest in stage["artifact_digests"]:
+            actual = file_digest(digest["path"])
+            assert digest["sha256"] == actual.sha256
+            assert digest["bytes"] == actual.bytes
     versions = {
         record["provenance"][0]["tool_name"]: record["provenance"][0]["tool_version"]
         for record in run["stages"]

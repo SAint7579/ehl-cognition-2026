@@ -7,7 +7,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence, TypeVar, cast
+from typing import Sequence, TypeVar
 
 from pydantic import BaseModel
 
@@ -70,13 +70,9 @@ def run_tool(
 
 
 def write_json_model(path: Path | str, model: ModelT) -> ModelT:
-    """Write a validated model and finalize an in-process output digest."""
+    """Validate and write a Pydantic model as JSON."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    provenance = getattr(model, "provenance", None)
-    if isinstance(provenance, ProvenanceRecord) and not provenance.output_files:
-        finalized = provenance.model_copy(update={"output_files": [file_digest(path)]})
-        model = cast(ModelT, model.model_copy(update={"provenance": finalized}))
-        path.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    return model
+    validated = model.__class__.model_validate(model.model_dump())
+    path.write_text(validated.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return validated

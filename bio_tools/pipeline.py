@@ -36,15 +36,18 @@ def run_pipeline(
     homologs = run_homolog_search(target_path, database_path, out_dir, threads)
     homolog_json = out_dir / "homolog_search.json"
     _write_json(homolog_json, homologs)
+    homolog_artifacts = [out_dir / "homologs.fasta", homolog_json]
     msa_json = out_dir / "alignment.json"
     alignment_path = out_dir / "alignment.fasta"
     alignment = run_msa(out_dir / "homologs.fasta", alignment_path, threads)
     _write_json(msa_json, alignment)
+    msa_artifacts = [alignment_path, msa_json]
     conservation_json = out_dir / "conservation.json"
     conservation = _write_json(
         conservation_json,
         analyze_alignment(alignment_path, alignment.target_row_id),
     )
+    conservation_artifacts = [conservation_json]
     ended = datetime.now(timezone.utc)
     run = RunArtifact(
         pipeline_version="0.1.0",
@@ -57,18 +60,21 @@ def run_pipeline(
                 stage="homolog-search",
                 status="COMPLETED",
                 artifact_paths=["homologs.fasta", "homolog_search.json"],
+                artifact_digests=[file_digest(path) for path in homolog_artifacts],
                 provenance=[homologs.provenance],
             ),
             StageArtifact(
                 stage="msa",
                 status="COMPLETED",
                 artifact_paths=["alignment.fasta", "alignment.json"],
+                artifact_digests=[file_digest(path) for path in msa_artifacts],
                 provenance=[alignment.provenance],
             ),
             StageArtifact(
                 stage="conservation",
                 status="COMPLETED",
                 artifact_paths=["conservation.json"],
+                artifact_digests=[file_digest(path) for path in conservation_artifacts],
                 provenance=[conservation.provenance],
             ),
         ],

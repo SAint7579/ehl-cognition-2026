@@ -87,4 +87,5 @@ def test_cli_conservation_writes_provenance(tmp_path: Path) -> None:
     assert provenance["tool_version"]
     assert provenance["argv"] is None
     assert provenance["exit_code"] is None
-    assert provenance["output_files"]
+    assert provenance["input_files"]
+    assert provenance["output_files"] == []

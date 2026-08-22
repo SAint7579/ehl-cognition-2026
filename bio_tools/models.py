@@ -127,6 +127,7 @@ class StageArtifact(StrictModel):
     stage: str
     status: Literal["COMPLETED", "FAILED"]
     artifact_paths: list[str]
+    artifact_digests: list[FileDigest]
     provenance: list[ProvenanceRecord]
 
 
