@@ -7,14 +7,17 @@ import math
 import shutil
 import time
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 from Bio import AlignIO
 from Bio.Align import MultipleSeqAlignment
 from Bio.PDB import PDBParser
 from Bio.PDB.Residue import Residue
+from numpy.typing import NDArray
 
 from . import __version__
 from .models import (
@@ -63,6 +66,21 @@ SCORE_DEFINITIONS = {
     "activity": "0.50 * proximity + 0.30 * plasticity + 0.20 * burial",
     "stability": "0.35 * exposure + 0.30 * variability + 0.20 * remoteness + 0.15 * loop",
 }
+
+
+@dataclass(frozen=True)
+class CandidateFeature:
+    author_residue: int
+    insertion_code: str | None
+    structure_index: int
+    target_position: int
+    msa_column: int | None
+    one_letter: str
+    conservation: float
+    rsa: float
+    secondary_structure: str | None
+    distance_to_active_site_angstrom: float
+    sub_scores: CandidateSubScores
 
 
 def analyze_candidates(
@@ -118,27 +136,11 @@ def analyze_candidates(
         )
     catalytic_coord = catalytic[catalytic_atom].get_coord()
 
-    alignment = None
-    target_row = None
+    alignment: MultipleSeqAlignment | None = None
     warnings: list[StructureWarning] = []
     if alignment_path is not None:
         alignment_path = Path(alignment_path).resolve()
         alignment = AlignIO.read(str(alignment_path), "fasta")
-        target_row = next(
-            (
-                row
-                for row in alignment
-                if all(
-                    annotation.msa_column is None
-                    or str(row.seq)[annotation.msa_column - 1] == annotation.one_letter
-                    for annotation in annotations.annotations
-                    if annotation.target_position is not None
-                )
-            ),
-            None,
-        )
-        if target_row is None:
-            raise ValueError("target row reconstructed from annotations not found in alignment")
     else:
         warnings.append(
             StructureWarning(
@@ -149,7 +151,7 @@ def analyze_candidates(
         )
 
     incomplete: list[str] = []
-    eligible: list[CandidateSite] = []
+    features: list[CandidateFeature] = []
     for annotation in annotations.annotations:
         if annotation.target_position is None:
             continue
@@ -166,46 +168,21 @@ def analyze_candidates(
             )
         distance = _minimum_heavy_atom_distance(residue, catalytic_coord)
         scores = _sub_scores(distance, annotation.conservation, annotation.rsa, annotation.secondary_structure)
-        options = (
-            _substitution_options(
-                alignment, annotation.msa_column, annotation.one_letter
+        features.append(
+            CandidateFeature(
+                author_residue=annotation.author_residue,
+                insertion_code=annotation.insertion_code,
+                structure_index=annotation.structure_index,
+                target_position=annotation.target_position,
+                msa_column=annotation.msa_column,
+                one_letter=annotation.one_letter,
+                conservation=annotation.conservation,
+                rsa=annotation.rsa,
+                secondary_structure=annotation.secondary_structure,
+                distance_to_active_site_angstrom=distance,
+                sub_scores=scores,
             )
-            if target_row is not None
-            else []
         )
-        base = dict(
-            author_residue=annotation.author_residue,
-            insertion_code=annotation.insertion_code,
-            structure_index=annotation.structure_index,
-            target_position=annotation.target_position,
-            msa_column=annotation.msa_column,
-            one_letter=annotation.one_letter,
-            conservation=annotation.conservation,
-            rsa=annotation.rsa,
-            secondary_structure=annotation.secondary_structure,
-            distance_to_active_site_angstrom=distance,
-            sub_scores=scores,
-            substitution_options=options,
-            evidence_type="CALCULATED",
-        )
-        activity_passes = (
-            distance <= 12.0
-            and annotation.conservation < 0.98
-            and annotation.rsa < 0.50
-            and annotation.author_residue not in exclude_set
-        )
-        if activity_passes:
-            eligible.append(
-                CandidateSite(
-                    **base,
-                    score=(
-                        0.50 * scores.proximity
-                        + 0.30 * scores.plasticity
-                        + 0.20 * scores.burial
-                    ),
-                    rank=0,
-                )
-            )
     if incomplete:
         warnings.append(
             StructureWarning(
@@ -215,59 +192,47 @@ def analyze_candidates(
             )
         )
 
-    activity_sites = _rank_sites(eligible)
-    stability_sites: list[CandidateSite] = []
-    for annotation in annotations.annotations:
-        if annotation.target_position is None or annotation.conservation is None or annotation.rsa is None:
-            continue
-        residue = residue_by_author.get(
-            (annotation.author_residue, annotation.insertion_code)
-        )
-        if residue is None:
-            raise ValueError(
-                f"author residue {annotation.author_residue}{annotation.insertion_code or ''} "
-                f"from annotations not found in chain {chain_id!r}"
+    activity_sites = _rank_sites(
+        [
+            _make_site(
+                feature,
+                score=(
+                    0.50 * feature.sub_scores.proximity
+                    + 0.30 * feature.sub_scores.plasticity
+                    + 0.20 * feature.sub_scores.burial
+                ),
+                substitution_options=_substitution_options_for_feature(feature, alignment),
             )
-        distance = _minimum_heavy_atom_distance(residue, catalytic_coord)
-        scores = _sub_scores(distance, annotation.conservation, annotation.rsa, annotation.secondary_structure)
-        if (
-            distance >= 12.0
-            and annotation.conservation < 0.90
-            and annotation.rsa >= 0.25
-            and annotation.author_residue not in exclude_set
-        ):
-            options = (
-                _substitution_options(
-                    alignment, annotation.msa_column, annotation.one_letter
-                )
-                if target_row is not None
-                else []
+            for feature in features
+            if (
+                feature.distance_to_active_site_angstrom <= 12.0
+                and feature.conservation < 0.98
+                and feature.rsa < 0.50
+                and feature.author_residue not in exclude_set
             )
-            stability_sites.append(
-                CandidateSite(
-                    author_residue=annotation.author_residue,
-                    insertion_code=annotation.insertion_code,
-                    structure_index=annotation.structure_index,
-                    target_position=annotation.target_position,
-                    msa_column=annotation.msa_column,
-                    one_letter=annotation.one_letter,
-                    conservation=annotation.conservation,
-                    rsa=annotation.rsa,
-                    secondary_structure=annotation.secondary_structure,
-                    distance_to_active_site_angstrom=distance,
-                    sub_scores=scores,
-                    score=(
-                        0.35 * scores.exposure
-                        + 0.30 * scores.variability
-                        + 0.20 * scores.remoteness
-                        + 0.15 * scores.loop
-                    ),
-                    rank=0,
-                    substitution_options=options,
-                    evidence_type="CALCULATED",
-                )
+        ]
+    )
+    stability_sites = _rank_sites(
+        [
+            _make_site(
+                feature,
+                score=(
+                    0.35 * feature.sub_scores.exposure
+                    + 0.30 * feature.sub_scores.variability
+                    + 0.20 * feature.sub_scores.remoteness
+                    + 0.15 * feature.sub_scores.loop
+                ),
+                substitution_options=_substitution_options_for_feature(feature, alignment),
             )
-    stability_sites = _rank_sites(stability_sites)
+            for feature in features
+            if (
+                feature.distance_to_active_site_angstrom >= 12.0
+                and feature.conservation < 0.90
+                and feature.rsa >= 0.25
+                and feature.author_residue not in exclude_set
+            )
+        ]
+    )
 
     input_files = [annotations_path, structure_path]
     if alignment_path is not None:
@@ -326,7 +291,7 @@ def analyze_candidates(
         evidence_type="CALCULATED",
     )
     return CandidateSitesArtifact(
-        target_id=target_row.id if target_row is not None else annotations.structure_id,
+        target_id=annotations.target_id,
         provenance=provenance,
         parameters=parameters,
         feature_definitions=FEATURE_DEFINITIONS,
@@ -371,7 +336,40 @@ def _stage_structure(path: Path, out_dir: Path) -> Path:
     return output
 
 
-def _minimum_heavy_atom_distance(residue: Residue, catalytic_coord: object) -> float:
+def _make_site(
+    feature: CandidateFeature,
+    score: float,
+    substitution_options: list[CandidateSubstitutionOption],
+) -> CandidateSite:
+    return CandidateSite(
+        author_residue=feature.author_residue,
+        insertion_code=feature.insertion_code,
+        structure_index=feature.structure_index,
+        target_position=feature.target_position,
+        msa_column=feature.msa_column,
+        one_letter=feature.one_letter,
+        conservation=feature.conservation,
+        rsa=feature.rsa,
+        secondary_structure=feature.secondary_structure,
+        distance_to_active_site_angstrom=feature.distance_to_active_site_angstrom,
+        sub_scores=feature.sub_scores,
+        score=score,
+        rank=0,
+        substitution_options=substitution_options,
+        evidence_type="CALCULATED",
+    )
+
+
+def _substitution_options_for_feature(
+    feature: CandidateFeature,
+    alignment: MultipleSeqAlignment | None,
+) -> list[CandidateSubstitutionOption]:
+    return _substitution_options(alignment, feature.msa_column, feature.one_letter)
+
+
+def _minimum_heavy_atom_distance(
+    residue: Residue, catalytic_coord: NDArray[np.float64]
+) -> float:
     atoms = (
         atom
         for atom in residue.get_atoms()

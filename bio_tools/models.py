@@ -238,6 +238,7 @@ class ResidueAnnotation(StrictModel):
 class ResidueAnnotationsArtifact(StrictModel):
     schema_version: str = SCHEMA_VERSION
     structure_id: str
+    target_id: str
     chain: str
     annotations: list[ResidueAnnotation]
     warnings: list[StructureWarning]

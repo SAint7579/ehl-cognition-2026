@@ -3,6 +3,7 @@ import gzip
 from pathlib import Path
 
 from Bio.PDB import PDBParser
+import pytest
 from jsonschema import Draft202012Validator
 
 from bio_tools.candidates import _minimum_heavy_atom_distance, _sub_scores
@@ -82,13 +83,54 @@ def test_candidate_cli_artifact_filters_ranking_and_determinism(tmp_path: Path) 
     second_path = second / "candidate_sites.json"
     artifact = json.loads(first_path.read_text())
     second_artifact = json.loads(second_path.read_text())
+    annotations_artifact = json.loads(annotations.read_text())
     assert artifact["shortlists"] == second_artifact["shortlists"]
     schema = json.loads((ROOT / "schemas/candidate_sites.schema.json").read_text())
     Draft202012Validator(schema).validate(artifact)
     assert artifact["evidence_type"] == "CALCULATED"
+    assert artifact["target_id"] == "sp|A0A0K8P6T7|PETH_PISS1"
     assert artifact["provenance"]["argv"] is None
     assert artifact["provenance"]["exit_code"] is None
     assert artifact["provenance"]["input_files"]
+    assert artifact["parameters"]["feature_cutoffs"] == {
+        "proximity_distance_low": 4.0,
+        "proximity_distance_high": 12.0,
+        "remoteness_distance_low": 12.0,
+        "remoteness_distance_high": 25.0,
+        "burial_rsa_low": 0.0,
+        "burial_rsa_high": 0.5,
+        "exposure_rsa_low": 0.0,
+        "exposure_rsa_high": 0.5,
+        "plasticity_conservation_low": 0.60,
+        "plasticity_conservation_high": 0.98,
+        "variability_conservation_low": 0.50,
+        "variability_conservation_high": 0.90,
+    }
+    assert artifact["parameters"]["activity_weights"] == {
+        "proximity": 0.50,
+        "plasticity": 0.30,
+        "burial": 0.20,
+    }
+    assert artifact["parameters"]["stability_weights"] == {
+        "exposure": 0.35,
+        "variability": 0.30,
+        "remoteness": 0.20,
+        "loop": 0.15,
+    }
+    assert artifact["feature_definitions"] == {
+        "lin": "lin(x, lo, hi) = clamp((x - lo) / (hi - lo), 0, 1)",
+        "proximity": "1 - lin(distance_to_active_site_angstrom, 4.0, 12.0)",
+        "remoteness": "lin(distance_to_active_site_angstrom, 12.0, 25.0)",
+        "burial": "1 - lin(rsa, 0.0, 0.5)",
+        "exposure": "lin(rsa, 0.0, 0.5)",
+        "plasticity": "1 - lin(conservation, 0.60, 0.98)",
+        "variability": "1 - lin(conservation, 0.50, 0.90)",
+        "loop": '1.0 if secondary_structure == "C" else 0.0',
+    }
+    assert artifact["score_definitions"] == {
+        "activity": "0.50 * proximity + 0.30 * plasticity + 0.20 * burial",
+        "stability": "0.35 * exposure + 0.30 * variability + 0.20 * remoteness + 0.15 * loop",
+    }
     activity = artifact["shortlists"]["activity"]
     stability = artifact["shortlists"]["stability"]
     assert {site["author_residue"] for site in activity["sites"]}.isdisjoint(
@@ -102,6 +144,14 @@ def test_candidate_cli_artifact_filters_ranking_and_determinism(tmp_path: Path) 
         )
         for site in sites:
             assert site["author_residue"] not in {160, 206, 237}
+            weights = artifact["shortlists"][name]["weights"]
+            assert site["score"] == pytest.approx(
+                sum(
+                    weight * site["sub_scores"][feature]
+                    for feature, weight in weights.items()
+                ),
+                abs=1e-12,
+            )
             if name == "activity":
                 assert site["distance_to_active_site_angstrom"] <= 12.0
                 assert site["conservation"] < 0.98
@@ -115,8 +165,30 @@ def test_candidate_cli_artifact_filters_ranking_and_determinism(tmp_path: Path) 
                 and option["residue"] != "-"
                 for option in site["substitution_options"]
             )
+            options = site["substitution_options"]
+            assert all(
+                option["count"] >= 2 and option["frequency"] >= 0.15
+                for option in options
+            )
+            assert options == sorted(
+                options,
+                key=lambda option: (-option["frequency"], option["residue"]),
+            )
     assert artifact["shortlists"]["activity"]["n_sites"] == len(activity["sites"])
     assert artifact["shortlists"]["stability"]["n_sites"] == len(stability["sites"])
+    tag_annotations = {
+        item["author_residue"]: item
+        for item in annotations_artifact["annotations"]
+        if item["author_residue"] in {291, 292, 293}
+    }
+    assert {item["target_position"] for item in tag_annotations.values()} == {None}
+    assert {item["msa_column"] for item in tag_annotations.values()} == {None}
+    shortlisted_residues = {
+        site["author_residue"]
+        for shortlist in artifact["shortlists"].values()
+        for site in shortlist["sites"]
+    }
+    assert not shortlisted_residues.intersection(tag_annotations)
 
 
 def test_candidate_subscores_clamp_at_both_ends() -> None:
@@ -124,9 +196,11 @@ def test_candidate_subscores_clamp_at_both_ends() -> None:
     high = _sub_scores(30.0, 1.0, 1.5, "H")
     assert low.proximity == 1.0
     assert low.burial == 1.0
+    assert low.loop == 1.0
     assert high.proximity == 0.0
     assert high.remoteness == 1.0
     assert high.exposure == 1.0
+    assert high.loop == 0.0
     assert all(0.0 <= value <= 1.0 for value in low.model_dump().values() if isinstance(value, float))
     assert all(0.0 <= value <= 1.0 for value in high.model_dump().values() if isinstance(value, float))
 
