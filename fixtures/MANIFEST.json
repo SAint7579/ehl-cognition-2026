@@ -1,0 +1,122 @@
+[
+  {
+    "accession": "A0A0K8P6T7",
+    "entry_name": "PETH_PISS1",
+    "evidence_type": "KNOWN",
+    "organism": "Piscinibacter sakaiensis",
+    "protein_name": "Poly(ethylene terephthalate) hydrolase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 290,
+    "sequence_version": 1,
+    "sha256": "12c59fe9dab495ee536f1c2a5fc28c66e212192096c2351044d4dc139042f5af",
+    "source_url": "https://rest.uniprot.org/uniprotkb/A0A0K8P6T7.fasta"
+  },
+  {
+    "accession": "A0A0K8P8E7",
+    "entry_name": "MHETH_PISS1",
+    "evidence_type": "KNOWN",
+    "organism": "Piscinibacter sakaiensis",
+    "protein_name": "Mono(2-hydroxyethyl) terephthalate hydrolase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 603,
+    "sequence_version": 1,
+    "sha256": "f215fc047b4ec5926e15faefd54333a71ec3937e217a71557ab01af31f111933",
+    "source_url": "https://rest.uniprot.org/uniprotkb/A0A0K8P8E7.fasta"
+  },
+  {
+    "accession": "Q6A0I4",
+    "entry_name": "PETH2_THEFU",
+    "evidence_type": "KNOWN",
+    "organism": "Thermobifida fusca",
+    "protein_name": "Cutinase cut2",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 301,
+    "sequence_version": 1,
+    "sha256": "a54bad3ec73c049eb45a846ac4803088b66fd0b38ad407d9090357fa20b68cc9",
+    "source_url": "https://rest.uniprot.org/uniprotkb/Q6A0I4.fasta"
+  },
+  {
+    "accession": "G9BY57",
+    "entry_name": "PETH_UNKP",
+    "evidence_type": "KNOWN",
+    "organism": "Unknown prokaryotic organism",
+    "protein_name": "Leaf-branch compost cutinase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 293,
+    "sequence_version": 1,
+    "sha256": "4459cb1cff927d45ca1b9c354914af28ae78f15d75424d440c8dc9b2a4c729d2",
+    "source_url": "https://rest.uniprot.org/uniprotkb/G9BY57.fasta"
+  },
+  {
+    "accession": "D1A9G5",
+    "entry_name": "D1A9G5_THECD",
+    "evidence_type": "KNOWN",
+    "organism": "Thermomonospora curvata (strain ATCC 19995 / DSM 43183 / JCM 3096 / KCTC 9072 / NBRC 15933 / NCIMB 10081 / Henssen B9)",
+    "protein_name": "Poly(ethylene terephthalate) hydrolase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 289,
+    "sequence_version": 1,
+    "sha256": "1450293e4e007a49d31da8d55c591324b0a67eed6c33f9f1e74d178127d67381",
+    "source_url": "https://rest.uniprot.org/uniprotkb/D1A9G5.fasta"
+  },
+  {
+    "accession": "D1A2H1",
+    "entry_name": "D1A2H1_THECD",
+    "evidence_type": "KNOWN",
+    "organism": "Thermomonospora curvata (strain ATCC 19995 / DSM 43183 / JCM 3096 / KCTC 9072 / NBRC 15933 / NCIMB 10081 / Henssen B9)",
+    "protein_name": "Poly(ethylene terephthalate) hydrolase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 292,
+    "sequence_version": 1,
+    "sha256": "c1c7a0f12b2eb7d90721116a6632f9b8ec72cbf3e8e48f7e184624fdc9caecee",
+    "source_url": "https://rest.uniprot.org/uniprotkb/D1A2H1.fasta"
+  },
+  {
+    "accession": "E9LVH8",
+    "entry_name": "PETH1_THECS",
+    "evidence_type": "KNOWN",
+    "organism": "Thermobifida cellulosilytica",
+    "protein_name": "Cutinase 1 (Fragment)",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 262,
+    "sequence_version": 1,
+    "sha256": "622f654e005640bab6abcb8a9e398a4ece6bccedb0a1980dc08aab8ae07eb3bb",
+    "source_url": "https://rest.uniprot.org/uniprotkb/E9LVH8.fasta"
+  },
+  {
+    "accession": "P00590",
+    "entry_name": "CUTI1_FUSVN",
+    "evidence_type": "KNOWN",
+    "organism": "Fusarium vanettenii",
+    "protein_name": "Cutinase 1",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 230,
+    "sequence_version": 1,
+    "sha256": "42bcb00678451cbf30f5e7a79996d91b306f1c0d96481a4a4d65430771434d92",
+    "source_url": "https://rest.uniprot.org/uniprotkb/P00590.fasta"
+  },
+  {
+    "accession": "P41365",
+    "entry_name": "LIPB_MOEAN",
+    "evidence_type": "KNOWN",
+    "organism": "Moesziomyces antarcticus",
+    "protein_name": "Lipase B",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 342,
+    "sequence_version": 1,
+    "sha256": "e5014ab42856b5807ef5170d01a0d5da314a320b39e61e3058fba58c10a1bc42",
+    "source_url": "https://rest.uniprot.org/uniprotkb/P41365.fasta"
+  },
+  {
+    "accession": "P37967",
+    "entry_name": "PNBA_BACSU",
+    "evidence_type": "KNOWN",
+    "organism": "Bacillus subtilis (strain 168)",
+    "protein_name": "Para-nitrobenzyl esterase",
+    "retrieval_date": "2026-08-22",
+    "sequence_length": 489,
+    "sequence_version": 2,
+    "sha256": "7092bad05ec25b6faaa9681e1999fd70b19cf800e32ebed0d8f26ec899dd7b6c",
+    "source_url": "https://rest.uniprot.org/uniprotkb/P37967.fasta"
+  }
+]
