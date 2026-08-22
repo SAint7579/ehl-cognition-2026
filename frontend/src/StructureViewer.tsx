@@ -24,23 +24,23 @@ function paint(
   activity: number[],
   stability: number[],
 ) {
-  viewer.setStyle({}, { cartoon: { color: "#8a8376", opacity: 0.95 } });
+  viewer.setStyle({}, { cartoon: { color: "#7a8b99", opacity: 0.95 } });
   if (stability.length) {
     viewer.addStyle(
       { resi: stability, chain: "A" },
-      { cartoon: { color: "#3d6b8a" }, stick: { color: "#3d6b8a", radius: 0.12 } },
+      { cartoon: { color: "#2563eb" }, stick: { color: "#2563eb", radius: 0.12 } },
     );
   }
   if (activity.length) {
     viewer.addStyle(
       { resi: activity, chain: "A" },
-      { cartoon: { color: "#c47b2b" }, stick: { color: "#c47b2b", radius: 0.14 } },
+      { cartoon: { color: "#0d9488" }, stick: { color: "#0d9488", radius: 0.14 } },
     );
   }
   if (triad.length) {
     viewer.addStyle(
       { resi: triad, chain: "A" },
-      { cartoon: { color: "#8a3b2a" }, stick: { color: "#8a3b2a", radius: 0.2 } },
+      { cartoon: { color: "#be123c" }, stick: { color: "#be123c", radius: 0.2 } },
     );
   }
 }
@@ -81,7 +81,7 @@ export function StructureViewer({
       if (cancelled || !host.current) return;
       const $3Dmol = ((mod as { default?: MolNS }).default ?? mod) as MolNS;
       const viewer = $3Dmol.createViewer(host.current, {
-        backgroundColor: "#f7f3ea",
+        backgroundColor: "#e8eef4",
         antialias: true,
       }) as ViewerHandle;
       viewer.divwatcher?.disconnect();

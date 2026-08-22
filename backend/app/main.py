@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
-from backend.app.artifacts import artifact_path, list_artifacts
+from backend.app.artifacts import artifact_path, list_artifacts, media_type
 from backend.app.chatfilter import visible_messages
 from backend.app.devin import normalize_session_ref
 from backend.app.executor import (
@@ -113,8 +113,7 @@ def get_artifact(job_id: str, filename: str) -> FileResponse:
     path = artifact_path(job_id, filename)
     if path is None:
         raise HTTPException(404, "artifact not found")
-    media = "chemical/x-pdb" if filename.endswith(".pdb") else None
-    return FileResponse(path, filename=filename, media_type=media)
+    return FileResponse(path, filename=filename, media_type=media_type(filename))
 
 
 @app.get("/api/jobs/{job_id}/events")

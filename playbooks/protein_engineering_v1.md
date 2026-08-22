@@ -24,6 +24,13 @@ laptop. The control-room API only creates a session, polls it, and copies
 attached artifacts. Do not ask the operator to run mmseqs, mafft, foldseek,
 mkdssp, or bioctl on their Mac.
 
+The scientist never uses this sandbox desktop. Conversation is on the left of
+the control room. Structures, homologs, and other evidence render on the
+**right-hand Evidence panel** (browser 3Dmol) from attached files. Do not
+open Chrome, a local `view.html` server, PyMOL, nglview, screenshots, or any
+other GUI on the sandbox desktop. Do not tell them that images are coming on
+the desktop or that they should take control of the VM.
+
 ## Preferred operator command
 
 Use this only when the scientist asked for a protein investigation. Point
@@ -73,11 +80,43 @@ mapping, and heuristic candidate scores. `PREDICTED` and `EXPERIMENTAL` are
 reserved and unused by this playbook. Retrieved or calculated evidence is not
 experimental validation.
 
+## Artifacts the control room can show
+
+Attach files by short basename. The Evidence panel renders them. Chat is not
+the figure viewer.
+
+| Kind | Files | What the scientist sees |
+|---|---|---|
+| 3D structure | `structure.pdb`, extra `*.pdb` / `*.cif`, `structure_summary.json` | Interactive 3Dmol viewer |
+| Figures | `*.png` (also jpg, webp, svg, gif) | Image cards. Use names like `lcc_triad.png` |
+| Tables | `*.csv`, `*.tsv` | Preview table |
+| Homologs | `homolog_search.json`, `homologs.fasta` | Hit table |
+| Conservation | `conservation.json` | Heatmap |
+| Candidates | `candidate_sites.json`, `final_result.json` | Ranked sites |
+| Other | `alignment.*`, `residue_annotations.json`, `run.json`, `*.md` | File list / science panels |
+
+Headless PNG export is allowed (`matplotlib`, `pymol -cq`). Opening Chrome,
+`localhost:8899`, a desktop GUI, or telling them to take control of the VM
+is not.
+
+## Showing a structure
+
+When they ask to see a structure (for example "Show me the structure for LCC"):
+
+1. Fetch the deposited PDB (LCC is 4EB0 unless they named another entry).
+2. Attach `structure.pdb` and `structure_summary.json` by basename.
+3. Optionally render a headless cartoon or surface PNG (`lcc_4eb0_cartoon.png`)
+   and attach it. Do not open a desktop viewer.
+4. In chat, name the PDB id and any residues to highlight.
+
+The control room shows the PDB in 3D and the PNG under Figures.
+
 ## Prohibitions
 
 Do not describe retrieved or calculated evidence as experimental validation.
 Do not add learned models. Do not download large sequence databases. Retrieving
 a named UniProt record or deposited PDB is allowed.
+Do not render structures or other results on the sandbox desktop.
 
 ## Escalation
 

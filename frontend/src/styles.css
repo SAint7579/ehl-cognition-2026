@@ -1,14 +1,15 @@
 :root {
   color-scheme: light;
-  --bg: #f3efe6;
-  --panel: #fffcf7;
-  --ink: #1b1916;
-  --muted: #6f675c;
-  --line: #e2d8c8;
-  --accent: #1f4f43;
-  --accent-soft: #dce8e3;
-  --you: #243044;
-  --warn: #8a3b2a;
+  --bg: #eef3f7;
+  --panel: #ffffff;
+  --ink: #102033;
+  --muted: #5a6b7c;
+  --line: #d4dee8;
+  --accent: #0b7a75;
+  --accent-soft: #dcefee;
+  --you: #16324f;
+  --warn: #b42318;
+  --viewer: #e8eef4;
 }
 
 * {
@@ -22,7 +23,7 @@ body,
   height: 100%;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.5 "IBM Plex Sans", "Source Sans 3", sans-serif;
+  font: 15px/1.5 "IBM Plex Sans", "Helvetica Neue", sans-serif;
 }
 
 button,
@@ -48,7 +49,7 @@ button {
 .sidebar {
   padding: 20px 16px;
   border-right: 1px solid var(--line);
-  background: #efe8db;
+  background: #e4ecf3;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -56,9 +57,11 @@ button {
 }
 
 .brand {
-  font-family: "IBM Plex Serif", Georgia, serif;
-  font-size: 18px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 17px;
+  font-weight: 600;
   letter-spacing: -0.02em;
+  color: var(--accent);
 }
 
 .ghost,
@@ -101,6 +104,7 @@ button {
 
 .history-item.current {
   background: var(--panel);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .chat,
@@ -125,9 +129,9 @@ button {
 .chat-top h1,
 .start h1 {
   margin: 0;
-  font-family: "IBM Plex Serif", Georgia, serif;
-  font-size: 26px;
-  font-weight: 500;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 22px;
+  font-weight: 600;
   letter-spacing: -0.03em;
 }
 
@@ -174,7 +178,7 @@ button {
 .bubble.you {
   align-self: flex-end;
   background: var(--you);
-  color: #f6f3ee;
+  color: #f4f8fb;
   border-color: transparent;
 }
 
@@ -220,7 +224,7 @@ button {
 .markdown h2,
 .markdown h3,
 .markdown h4 {
-  font-family: "IBM Plex Serif", Georgia, serif;
+  font-family: "IBM Plex Sans", sans-serif;
   font-size: 1.05em;
   font-weight: 550;
   margin: 0.9em 0 0.35em;
@@ -234,7 +238,8 @@ button {
 }
 
 .markdown code {
-  font-size: 0.92em;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.9em;
 }
 
 .markdown pre {
@@ -357,16 +362,64 @@ button {
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 14px 16px;
   margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(16, 32, 51, 0.04);
 }
 
 .card h3 {
   margin: 0;
-  font-family: "IBM Plex Serif", Georgia, serif;
-  font-size: 18px;
-  font-weight: 500;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.figure-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.figure-grid figure {
+  margin: 0;
+}
+
+.figure-grid img {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: var(--viewer);
+  border: 1px solid var(--line);
+}
+
+.figure-grid figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.file-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.file-list a {
+  color: var(--accent);
 }
 
 .card h4 {
@@ -411,7 +464,7 @@ td {
   margin: 12px 0 8px;
   border-radius: 12px;
   overflow: hidden;
-  background: #f7f3ea;
+  background: var(--viewer);
   contain: strict;
 }
 
@@ -433,15 +486,15 @@ td {
 }
 
 .swatch.triad {
-  background: #8a3b2a;
+  background: #be123c;
 }
 
 .swatch.activity {
-  background: #c47b2b;
+  background: #0d9488;
 }
 
 .swatch.stability {
-  background: #3d6b8a;
+  background: #2563eb;
 }
 
 .click-row {
@@ -488,7 +541,7 @@ td {
 }
 
 .warn-card {
-  background: #f8ece7;
+  background: #fde8e6;
 }
 
 @media (max-width: 980px) {

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  artifactUrl,
   createJob,
   getHealth,
   getJob,
@@ -11,6 +12,7 @@ import {
   loadResidues,
   loadStructure,
   loadStructurePdb,
+  loadText,
   sendMessage,
   watchJob,
 } from "./api";
@@ -19,6 +21,7 @@ import { Markdown } from "./Markdown";
 import { StructureViewer } from "./StructureViewer";
 import type {
   CandidateSite,
+  ArtifactInfo,
   ConservationColumn,
   FinalResult,
   Health,
@@ -29,6 +32,8 @@ import type {
 } from "./types";
 
 const DEFAULT_OBJECTIVE = "";
+
+type TableArtifact = { filename: string; rows: string[][] };
 
 const PETASE_TRIAD = new Set([160, 206, 237]);
 const PETASE_STRUCTURES = new Set(["6EQE", "5XJH"]);
@@ -65,6 +70,7 @@ export function App() {
   const [residues, setResidues] = useState<ResidueAnnotation[]>([]);
   const [result, setResult] = useState<FinalResult | null>(null);
   const [pdbText, setPdbText] = useState<string | null>(null);
+  const [tables, setTables] = useState<TableArtifact[]>([]);
   const [focusResidue, setFocusResidue] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [clock, setClock] = useState(Date.now());
@@ -116,6 +122,7 @@ export function App() {
       setResidues([]);
       setResult(null);
       setPdbText(null);
+      setTables([]);
       setFocusResidue(null);
       return;
     }
@@ -144,8 +151,23 @@ export function App() {
     if (has("structure_summary.json")) loadStructure(job.id).then(setStructure).catch(() => undefined);
     if (has("residue_annotations.json")) loadResidues(job.id).then(setResidues).catch(() => undefined);
     if (has("final_result.json")) loadFinalResult(job.id).then(setResult).catch(() => undefined);
-    if (has("structure.pdb") || has("structure_summary.json") || has("final_result.json")) {
-      loadStructurePdb(job.id).then(setPdbText).catch(() => undefined);
+    const pdbName =
+      job.artifacts.find((item) => item.filename === "structure.pdb")?.filename ??
+      job.artifacts.find((item) => /\.pdb$/i.test(item.filename))?.filename;
+    if (pdbName || has("structure_summary.json") || has("final_result.json")) {
+      loadStructurePdb(job.id, pdbName ?? "structure.pdb").then(setPdbText).catch(() => undefined);
+    }
+    const tableFiles = job.artifacts.filter((item) => /\.(csv|tsv)$/i.test(item.filename));
+    if (tableFiles.length) {
+      Promise.all(
+        tableFiles.map((item) =>
+          loadText(job.id, item.filename).then((text) =>
+            text ? { filename: item.filename, rows: parseDelimited(text, item.filename) } : null,
+          ),
+        ),
+      ).then((rows) => setTables(rows.filter((item): item is TableArtifact => item !== null)));
+    } else {
+      setTables([]);
     }
   }, [job]);
 
@@ -362,10 +384,11 @@ export function App() {
         </header>
         <div className="results">
           {job.error && !working ? <div className="card warn-card">{friendlyError(job.error)}</div> : null}
-          {!homologs.length && !columns.length && !structure && !working ? (
+          {!homologs.length && !columns.length && !structure && !figures(job).length && !tables.length && !working ? (
             <p className="empty">Results will land here as the investigation finishes.</p>
           ) : null}
-          {working && !homologs.length ? <p className="empty">Waiting for the first artifacts…</p> : null}
+          {working && !homologs.length && !figures(job).length ? <p className="empty">Waiting for the first artifacts…</p> : null}
+          <FigureCard jobId={job.id} images={figures(job)} />
           <StructureViewCard
             pdbText={pdbText}
             structure={structure}
@@ -374,9 +397,11 @@ export function App() {
             focus={focusResidue}
             onFocus={setFocusResidue}
           />
+          <TableCard tables={tables} />
           <HomologCard hits={homologs} />
           <ConservationCard columns={columns} />
           <CandidatesCard result={result} onFocus={setFocusResidue} />
+          <FileListCard jobId={job.id} artifacts={job.artifacts} />
           {job.limitations.length ? (
             <details className="notes">
               <summary>Limitations</summary>
@@ -443,13 +468,104 @@ function upsert(jobs: Job[], next: Job): Job[] {
 }
 
 function friendlyError(error: string): string {
-  if (error.toLowerCase().includes("attachment")) {
+  const text = error.toLowerCase();
+  if (text.includes("no route") || text.includes("errno 65") || text.includes("timed out") || text.includes("connection")) {
+    return "Lost the connection to the sandbox for a moment. The earlier results are still here. Send the last follow-up again.";
+  }
+  if (text.includes("attachment")) {
     return "The sandbox finished. Restoring the result files now.";
   }
-  if (error.toLowerCase().includes("not on this mac") || error.toLowerCase().includes("devin")) {
+  if (text.includes("not on this mac") || text.includes("devin")) {
     return "The sandbox is not available. Check the Devin key in .env.";
   }
   return "Something went wrong in the sandbox. Try a follow-up, or start a new investigation.";
+}
+
+function figures(job: Job): ArtifactInfo[] {
+  return job.artifacts.filter((item) => /\.(png|jpe?g|webp|gif|svg)$/i.test(item.filename));
+}
+
+function prettyName(filename: string): string {
+  return filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+}
+
+function parseDelimited(text: string, filename: string): string[][] {
+  const delimiter = filename.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((line) => line.split(delimiter).slice(0, 8));
+}
+
+function FigureCard({ jobId, images }: { jobId: string; images: ArtifactInfo[] }) {
+  if (!images.length) return null;
+  return (
+    <div className="card figure-card">
+      <h3>Figures</h3>
+      <p className="card-meta">Attached images from the sandbox. Not experimental photos.</p>
+      <div className="figure-grid">
+        {images.map((item) => (
+          <figure key={item.filename}>
+            <img src={artifactUrl(jobId, item.filename)} alt={prettyName(item.filename)} />
+            <figcaption>{prettyName(item.filename)}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TableCard({ tables }: { tables: TableArtifact[] }) {
+  if (!tables.length) return null;
+  return (
+    <>
+      {tables.map((table) => (
+        <div className="card" key={table.filename}>
+          <h3>{prettyName(table.filename)}</h3>
+          <p className="card-meta">{table.filename}</p>
+          <table>
+            <tbody>
+              {table.rows.map((row, index) => (
+                <tr key={`${table.filename}-${index}`}>
+                  {row.map((cell, cellIndex) =>
+                    index === 0 ? <th key={cellIndex}>{cell}</th> : <td key={cellIndex}>{cell}</td>,
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function FileListCard({ jobId, artifacts }: { jobId: string; artifacts: ArtifactInfo[] }) {
+  const extras = artifacts.filter(
+    (item) =>
+      !["homolog_search.json", "conservation.json", "structure_summary.json", "residue_annotations.json", "final_result.json", "candidate_sites.json", "structure.pdb"].includes(
+        item.filename,
+      ) && !/\.(png|jpe?g|webp|gif|svg|csv|tsv)$/i.test(item.filename),
+  );
+  if (!extras.length) return null;
+  return (
+    <div className="card">
+      <h3>Other files</h3>
+      <p className="card-meta">Also attached to this investigation</p>
+      <ul className="file-list">
+        {extras.map((item) => (
+          <li key={item.filename}>
+            <a href={artifactUrl(jobId, item.filename)} target="_blank" rel="noreferrer">
+              {item.filename}
+            </a>
+            <small>{Math.max(1, Math.round(item.bytes / 1024))} KB</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function HomologCard({ hits }: { hits: HomologHit[] }) {

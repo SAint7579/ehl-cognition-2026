@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from backend.app.artifacts import ARTIFACT_FILES, job_dir, list_artifacts
+from backend.app.artifacts import is_allowed_artifact, job_dir, list_artifacts
 from backend.app.chatfilter import clean_body, is_internal
 from backend.app.devin import DevinClient, DevinError, SessionClient, normalize_session_ref
 from backend.app.models import JobStatus, Speaker
@@ -170,7 +170,13 @@ def answer_follow_up(
         return
     try:
         session_client = client or get_client()
-        store.update(job_id, status=JobStatus.running, active_agent=Speaker.reviewer, active_stage="follow-up")
+        store.update(
+            job_id,
+            status=JobStatus.running,
+            active_agent=Speaker.reviewer,
+            active_stage="follow-up",
+            error=None,
+        )
         store.add_event(job_id, new_event("stage.started", "Sending follow-up to the sandbox", "follow-up"))
         session_client.send_message(session_id, follow_up_prompt(body))
         _finish_from_session(
@@ -184,16 +190,7 @@ def answer_follow_up(
             complete_message="Follow-up complete",
         )
     except Exception as error:
-        store.update(
-            job_id,
-            status=JobStatus.failed,
-            error=str(error),
-            active_agent=None,
-            active_stage=None,
-            artifacts=list_artifacts(job_id),
-        )
-        store.add_event(job_id, new_event("job.failed", str(error)))
-        store.add_message(job_id, new_message(Speaker.system, f"Follow-up failed: {error}", stage="error"))
+        _fail_or_keep_results(job_id, error, "Follow-up failed")
 
 
 def import_session(
@@ -251,15 +248,40 @@ def resume_running_jobs() -> None:
                 complete_message="Sandbox turn complete",
             )
         except Exception as error:
-            store.update(
-                job.id,
-                status=JobStatus.failed,
-                error=str(error),
-                active_agent=None,
-                active_stage=None,
-                artifacts=list_artifacts(job.id),
-            )
-            store.add_event(job.id, new_event("job.failed", str(error)))
+            _fail_or_keep_results(job.id, error, "Resume failed")
+
+
+def _fail_or_keep_results(job_id: str, error: Exception, prefix: str) -> None:
+    artifacts = list_artifacts(job_id)
+    if _has_science(artifacts):
+        store.update(
+            job_id,
+            status=JobStatus.complete,
+            error=str(error),
+            active_agent=None,
+            active_stage=None,
+            artifacts=artifacts,
+        )
+        store.add_event(job_id, new_event("agent.error", f"{prefix}: {error}"))
+        store.add_message(
+            job_id,
+            new_message(
+                Speaker.planner,
+                "Could not reach the sandbox just now. The earlier results are still on the right. Send the follow-up again.",
+                stage="error",
+            ),
+        )
+        return
+    store.update(
+        job_id,
+        status=JobStatus.failed,
+        error=str(error),
+        active_agent=None,
+        active_stage=None,
+        artifacts=artifacts,
+    )
+    store.add_event(job_id, new_event("job.failed", str(error)))
+    store.add_message(job_id, new_message(Speaker.system, f"{prefix}: {error}", stage="error"))
 
 
 _last_sync: dict[str, float] = {}
@@ -298,7 +320,7 @@ def sync_job(job_id: str) -> None:
         due = now - _last_harvest.get(job_id, 0) >= HARVEST_EVERY
         closing = job.status == JobStatus.running and _turn_complete(status, detail)
         if job.status == JobStatus.running and (due or closing):
-            _harvest(job_id, client, session_id, session, {}, force=closing, scan_messages=closing)
+            _harvest(job_id, client, session_id, session, {}, force=False, scan_messages=closing)
             _last_harvest[job_id] = now
     except Exception:
         pass
@@ -329,7 +351,7 @@ def _finish_from_session(
     else:
         session = client.get_session(session_id)
         _ingest_messages(job_id, client, session_id)
-        _harvest(job_id, client, session_id, session, {}, force=True, scan_messages=True)
+        _harvest(job_id, client, session_id, session, {}, force=False, scan_messages=True)
         status, detail = _status_fields(session)
         if detail == NEEDS_CONFIRM:
             _hold_for_confirm(job_id)
@@ -391,7 +413,7 @@ def _await_session(
                 session_id,
                 session,
                 known_bytes,
-                force=closing,
+                force=False,
                 scan_messages=closing,
             )
             last_harvest = now()
@@ -407,7 +429,7 @@ def _await_session(
                 continue
             try:
                 _ingest_messages(job_id, client, session_id)
-                _harvest(job_id, client, session_id, session, known_bytes, force=True, scan_messages=True)
+                _harvest(job_id, client, session_id, session, known_bytes, force=False, scan_messages=True)
             except Exception:
                 pass
             return "done"
@@ -567,13 +589,13 @@ def _harvest(
         name = str(item.get("name") or item.get("filename") or "")
         basename = Path(name).name
         url = item.get("url") or item.get("download_url")
-        if basename in ARTIFACT_FILES and url:
+        if is_allowed_artifact(basename) and url:
             pending.append((basename, str(url), _remote_size(item)))
     if scan_messages:
         for raw in client.list_messages(session_id):
             for url in ATTACHMENT_URL.findall(_message_text(raw)):
                 basename = Path(url).name
-                if basename in ARTIFACT_FILES:
+                if is_allowed_artifact(basename):
                     pending.append((basename, url, None))
     seen_urls: set[str] = set()
     for basename, url, remote_size in pending:
@@ -599,7 +621,7 @@ def _harvest(
     if isinstance(payload, dict):
         for key, value in payload.items():
             basename = Path(str(key)).name
-            if basename not in ARTIFACT_FILES:
+            if not is_allowed_artifact(basename):
                 continue
             if isinstance(value, (dict, list)):
                 data = json.dumps(value).encode("utf-8")
@@ -654,7 +676,7 @@ def _write_artifact(
         job_id,
         new_event(
             "artifact.ready",
-            FILE_LABEL.get(basename, f"{basename} arrived"),
+            FILE_LABEL.get(basename, _file_label(basename)),
             _stage_for_file(basename),
             f"art_{Path(basename).stem}",
         ),
@@ -711,8 +733,20 @@ def _stage_for(speaker: Speaker) -> str:
     }.get(speaker, "sandbox")
 
 
+def _file_label(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}:
+        return f"Figure {filename} arrived"
+    if suffix in {".pdb", ".cif"}:
+        return f"Structure {filename} arrived"
+    if suffix in {".csv", ".tsv"}:
+        return f"Table {filename} arrived"
+    return f"{filename} arrived"
+
+
 def _stage_for_file(filename: str) -> str:
-    if filename.startswith("structure") or filename.startswith("residue"):
+    suffix = Path(filename).suffix.lower()
+    if filename.startswith("structure") or filename.startswith("residue") or suffix in {".pdb", ".cif", ".png", ".jpg", ".jpeg", ".webp", ".svg"}:
         return "structure"
     if filename in {"candidate_sites.json", "final_result.json"}:
         return "rank"
@@ -733,7 +767,9 @@ def _latest_agent(job_id: str) -> Speaker | None:
 
 def _has_science(artifacts: list[Any]) -> bool:
     names = {item.filename for item in artifacts}
-    return bool(names & {"conservation.json", "final_result.json", "homolog_search.json"})
+    if names & {"conservation.json", "final_result.json", "homolog_search.json", "structure.pdb"}:
+        return True
+    return any(name.lower().endswith((".png", ".pdb", ".cif", ".csv")) for name in names)
 
 
 def _limitations(job_id: str) -> list[str]:

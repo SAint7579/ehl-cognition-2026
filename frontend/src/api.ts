@@ -115,8 +115,20 @@ export function loadFinalResult(jobId: string): Promise<FinalResult | null> {
   return loadJson<FinalResult>(jobId, "final_result.json");
 }
 
-export function loadStructurePdb(jobId: string): Promise<string | null> {
-  return fetch(`/api/jobs/${jobId}/artifacts/structure.pdb`).then((response) => {
+export function loadStructurePdb(jobId: string, filename = "structure.pdb"): Promise<string | null> {
+  return fetch(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`).then((response) => {
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(response.statusText);
+    return response.text();
+  });
+}
+
+export function artifactUrl(jobId: string, filename: string): string {
+  return `/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`;
+}
+
+export function loadText(jobId: string, filename: string): Promise<string | null> {
+  return fetch(artifactUrl(jobId, filename)).then((response) => {
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(response.statusText);
     return response.text();

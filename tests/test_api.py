@@ -227,6 +227,24 @@ def test_harvests_chat_attachment_urls(monkeypatch, tmp_path: Path) -> None:
     fake.list_attachments = original_list  # type: ignore[method-assign]
 
 
+def test_lists_png_and_csv_artifacts(tmp_path: Path) -> None:
+    settings.runs_dir = tmp_path
+    live_store._jobs.clear()
+    job = live_store.create("Show LCC as a figure.", None, True)
+    folder = tmp_path / job.id
+    (folder / "lcc_triad.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 20)
+    (folder / "triad_residues.csv").write_text("residue,role\nS165,nucleophile\n", encoding="utf-8")
+    from backend.app.artifacts import list_artifacts
+
+    names = {item.filename for item in list_artifacts(job.id)}
+    assert "lcc_triad.png" in names
+    assert "triad_residues.csv" in names
+    client = TestClient(app)
+    image = client.get(f"/api/jobs/{job.id}/artifacts/lcc_triad.png")
+    assert image.status_code == 200
+    assert image.headers["content-type"].startswith("image/png")
+
+
 def test_jobs_persist_across_reload(tmp_path: Path) -> None:
     settings.runs_dir = tmp_path
     live_store._jobs.clear()
