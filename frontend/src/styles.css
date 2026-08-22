@@ -1,0 +1,202 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --panel: #fffcf6;
+  --ink: #1c1916;
+  --muted: #6b645c;
+  --line: #d9d1c4;
+  --accent: #2f5d50;
+  --user: #3d4a66;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.45 "IBM Plex Sans", "Source Sans 3", sans-serif;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.top {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.top h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.meta,
+.hint,
+.cite,
+.limit {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pill {
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.pill.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr);
+  min-height: 0;
+}
+
+.pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+
+.pane:last-child {
+  border-right: 0;
+}
+
+.pane h2 {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.thread {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px 20px;
+}
+
+.turn {
+  margin-bottom: 14px;
+}
+
+.speaker {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.speaker.user {
+  color: var(--user);
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.composer button,
+.start button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 8px 12px;
+}
+
+.results {
+  overflow: auto;
+  padding: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.heatmap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+
+.cell {
+  width: 10px;
+  height: 14px;
+}
+
+.start {
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 0 16px;
+}
+
+.start textarea {
+  width: 100%;
+  min-height: 90px;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+}

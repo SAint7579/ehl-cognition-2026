@@ -14,13 +14,16 @@ dependencies = [
   "scipy",
   "pydantic>=2",
   "jsonschema",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx>=0.27",
 ]
 
 [project.scripts]
 bioctl = "bio_tools.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["bio_tools*"]
+include = ["bio_tools*", "backend", "backend.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

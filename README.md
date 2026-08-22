@@ -34,6 +34,34 @@ The single smoke-test command is:
 It runs the committed fixtures into the ignored `runs/` directory and prints
 the hit count, alignment length, and top conserved target positions.
 
+## Workspace API and UI
+
+The FastAPI layer turns a scientist objective into a **job**: conversation
+on the left, `bioctl` artifacts on the right. V1 runs the committed IsPETase
+fixtures locally (same code as `bioctl run` + `bioctl structure`). Devin can
+later replace that executor.
+
+```sh
+python -m pip install -e .
+python -m uvicorn backend.app.main:app --reload --port 8000
+```
+
+```sh
+cd frontend && npm install && npm run dev
+```
+
+Open http://127.0.0.1:5173. `POST /api/jobs` starts a run;
+`GET /api/jobs/{id}` and `/artifacts/{filename}` feed the UI.
+
+The API looks for `mmseqs`, `mafft`, `foldseek`, and `mkdssp` on PATH, plus
+`.tools/bin` and `.tools/conda/bin`. On this machine:
+
+```sh
+./scripts/bootstrap_tools.sh
+```
+
+`GET /api/health` reports any binaries that are still missing.
+
 The structure smoke test is:
 
 ```sh
