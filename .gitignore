@@ -1,0 +1,10 @@
+.venv/
+runs/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.m8
+mmseqs_tmp/
+*.tmp
+*.log
+*.egg-info/

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bio-tools"
+version = "0.1.0"
+description = "CPU-native homolog search, alignment, and conservation pipeline"
+requires-python = ">=3.12"
+dependencies = [
+  "biopython",
+  "numpy",
+  "pandas",
+  "scipy",
+  "pydantic>=2",
+  "jsonschema",
+]
+
+[project.scripts]
+bioctl = "bio_tools.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bio_tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
