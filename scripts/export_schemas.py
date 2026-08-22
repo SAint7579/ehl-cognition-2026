@@ -13,6 +13,7 @@ from bio_tools.models import (
     AlignmentArtifact,
     CandidateSitesArtifact,
     ConservationArtifact,
+    FinalResultArtifact,
     HomologSearchArtifact,
     ResidueAnnotationsArtifact,
     RunArtifact,
@@ -29,6 +30,7 @@ SCHEMAS = {
     "structure_summary": StructureSummaryArtifact,
     "residue_annotations": ResidueAnnotationsArtifact,
     "candidate_sites": CandidateSitesArtifact,
+    "final_result": FinalResultArtifact,
 }
 
 

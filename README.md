@@ -93,3 +93,34 @@ The candidate smoke test is:
 ```sh
 ./scripts/candidate_smoke_test.sh
 ```
+
+## V1 orchestration contract
+
+The versioned [protein-engineering V1 playbook](playbooks/protein_engineering_v1.md)
+defines the operator-facing procedure over the sequence, structure, and
+candidate slices. Run the complete investigation with:
+
+```sh
+bioctl investigate \
+  --objective "Identify substrate-cleft and surface engineering sites" \
+  --target fixtures/target_ispetase.fasta \
+  --database fixtures/homolog_db.fasta \
+  --structure fixtures/structures/6EQE.pdb.gz \
+  --chain A \
+  --references fixtures/structures \
+  --out runs/investigate
+```
+
+The command writes stage outputs under `sequence/`, `structure/`, and
+`candidates/`, plus the schema-validated `final_result.json`. The report
+records stage statuses and continues to write the report when a stage fails:
+later stages become `SKIPPED` and the command exits 1. Constraints are labeled
+`ENFORCED_BY_PIPELINE` only when passed through to candidate ranking; other
+constraints are `RECORDED_ONLY`.
+
+The playbook is versioned as `protein-engineering-v1` version `1.0.0`, and its
+path and digest are pinned in the final report. The fourth smoke test is:
+
+```sh
+./scripts/investigate_smoke_test.sh
+```
