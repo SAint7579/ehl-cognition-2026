@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/structureviewer.tsx","./src/api.ts","./src/chat.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/InvestigationFlow.tsx","./src/Markdown.tsx","./src/StructureViewer.tsx","./src/api.ts","./src/chat.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts"],"version":"5.9.3"}
