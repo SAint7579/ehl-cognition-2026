@@ -14,6 +14,13 @@ type FlowStep = {
   artifacts: ArtifactInfo[];
 };
 
+export type InvestigationSelection = {
+  id: string;
+  stage: string;
+  title: string;
+  artifactIds: string[];
+};
+
 type TimelineEntry =
   | { kind: "message"; createdAt: string; message: Message }
   | { kind: "event"; createdAt: string; event: JobEvent };
@@ -38,7 +45,15 @@ const STAGE_META: Record<string, { title: string; short: string }> = {
   error: { title: "Investigation stopped", short: "Stopped" },
 };
 
-export function InvestigationFlow({ job, working }: { job: Job; working: boolean }) {
+export function InvestigationFlow({
+  job,
+  working,
+  onSelectionChange,
+}: {
+  job: Job;
+  working: boolean;
+  onSelectionChange?: (selection: InvestigationSelection) => void;
+}) {
   const steps = useMemo(() => buildFlow(job), [job]);
   const [selectedId, setSelectedId] = useState(steps.at(-1)?.id ?? "request");
   const [followLive, setFollowLive] = useState(true);
@@ -60,12 +75,22 @@ export function InvestigationFlow({ job, working }: { job: Job; working: boolean
 
   const selected = steps.find((step) => step.id === selectedId) ?? steps.at(-1);
 
+  useEffect(() => {
+    if (!selected) return;
+    onSelectionChange?.({
+      id: selected.id,
+      stage: selected.stage,
+      title: selected.title,
+      artifactIds: selected.artifacts.map((artifact) => artifact.id),
+    });
+  }, [onSelectionChange, selected]);
+
   return (
     <section className="flow-panel" aria-label="Investigation flow">
       <div className="flow-heading">
         <div>
-          <p className="eyebrow">Investigation flow</p>
-          <h2>Follow the work, step by step</h2>
+          <p className="eyebrow">Research tasks</p>
+          <h2>Select a task to inspect its evidence</h2>
         </div>
         {!followLive ? (
           <button type="button" className="follow-live" onClick={() => setFollowLive(true)}>
