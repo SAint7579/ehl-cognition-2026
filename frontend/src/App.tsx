@@ -146,7 +146,6 @@ export function App() {
   const [clock, setClock] = useState(Date.now());
   const restored = useRef<string | null>(null);
   const composing = useRef(false);
-  const artifactSig = useRef<string>("");
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => undefined);
@@ -183,18 +182,7 @@ export function App() {
   }, [job?.id, job?.status, job?.active_stage]);
 
   useEffect(() => {
-    if (!job) {
-      artifactSig.current = "";
-      setHomologs([]);
-      setColumns([]);
-      setStructure(null);
-      setResidues([]);
-      setResult(null);
-      setPdbText(null);
-      setTables([]);
-      setFocusResidue(null);
-      return;
-    }
+    if (!job) return;
     let cancelled = false;
     const needsRestore =
       Boolean(job.devin_session_id) &&
@@ -213,13 +201,28 @@ export function App() {
         })
         .catch(() => undefined);
     }
-    const signature = `${job.id}:${job.artifacts.map((item) => `${item.filename}:${item.bytes}`).join(",")}`;
-    if (artifactSig.current === signature) {
-      return () => {
-        cancelled = true;
-      };
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
+
+  const artifactSignature = job
+    ? `${job.id}:${job.artifacts.map((item) => `${item.filename}:${item.bytes}`).join(",")}`
+    : "";
+
+  useEffect(() => {
+    if (!job) {
+      setHomologs([]);
+      setColumns([]);
+      setStructure(null);
+      setResidues([]);
+      setResult(null);
+      setPdbText(null);
+      setTables([]);
+      setFocusResidue(null);
+      return;
     }
-    artifactSig.current = signature;
+    let cancelled = false;
     const has = (name: string) => job.artifacts.some((item) => item.filename === name);
     setHomologs([]);
     setColumns([]);
@@ -289,7 +292,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [job]);
+  }, [artifactSignature, job?.id]);
 
   useEffect(() => {
     setSelectedEvidenceTask("overview");
@@ -302,6 +305,8 @@ export function App() {
   }, [residues, structure]);
   const turns = useMemo(() => (job ? visibleMessages(job.messages) : []), [job]);
   const evidenceTasks = useMemo(() => (job ? buildEvidenceTasks(job) : []), [job]);
+  const activeEvidenceTask =
+    evidenceTasks.find((task) => task.id === selectedEvidenceTask) ?? null;
   const onFlowSelection = useCallback((selection: InvestigationSelection) => {
     setSelectedEvidenceTask(evidenceTaskForStage(selection.stage));
   }, []);
@@ -357,7 +362,6 @@ export function App() {
     setPdbText(null);
     setFocusResidue(null);
     setSelectedEvidenceTask("overview");
-    artifactSig.current = "";
   }
 
   if (!job) {
@@ -552,12 +556,12 @@ export function App() {
             selected={selectedEvidenceTask}
             onSelect={setSelectedEvidenceTask}
           />
-          {selectedEvidenceTask === "overview" ? (
+          {selectedEvidenceTask === "overview" || !activeEvidenceTask ? (
             <TaskOverview tasks={evidenceTasks} onSelect={setSelectedEvidenceTask} working={working} />
           ) : (
             <TaskEvidence
               job={job}
-              task={evidenceTasks.find((task) => task.id === selectedEvidenceTask) ?? null}
+              task={activeEvidenceTask}
               tables={tables}
               homologs={homologs}
               columns={columns}
@@ -729,7 +733,7 @@ function buildEvidenceTasks(job: Job): EvidenceTask[] {
 
 function evidenceTaskForStage(stage: string): EvidenceTaskId {
   if (stage === "complete" || stage === "request" || stage === "error") return "overview";
-  return taskForStage(stage);
+  return EVIDENCE_TASKS.find((task) => task.stages.includes(stage))?.id ?? "overview";
 }
 
 function taskForStage(stage: string | null | undefined): Exclude<EvidenceTaskId, "overview"> {
@@ -944,7 +948,7 @@ function TaskEvidence({
   working,
 }: {
   job: Job;
-  task: EvidenceTask | null;
+  task: EvidenceTask;
   tables: TableArtifact[];
   homologs: HomologHit[];
   columns: ConservationColumn[];
@@ -956,7 +960,6 @@ function TaskEvidence({
   onFocus: (residue: number) => void;
   working: boolean;
 }) {
-  if (!task) return null;
   const taskIndex = EVIDENCE_TASKS.findIndex((definition) => definition.id === task.id) + 1;
   const tableNames = new Set(task.artifacts.map((artifact) => artifact.filename));
   const taskTables = tables.filter((table) => tableNames.has(table.filename));
