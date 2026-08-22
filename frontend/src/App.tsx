@@ -12,6 +12,7 @@ import {
   loadStructure,
   loadStructurePdb,
   sendMessage,
+  watchJob,
 } from "./api";
 import { isStatusLine, visibleMessages } from "./chat";
 import { Markdown } from "./Markdown";
@@ -66,6 +67,7 @@ export function App() {
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [focusResidue, setFocusResidue] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  const [clock, setClock] = useState(Date.now());
   const threadRef = useRef<HTMLDivElement>(null);
   const restored = useRef<string | null>(null);
   const composing = useRef(false);
@@ -89,14 +91,19 @@ export function App() {
       job.status === "running" ||
       job.active_stage === "waiting_for_approval";
     if (!live) return;
-    const timer = window.setInterval(() => {
-      getJob(job.id)
-        .then((next) => {
-          setJob(next);
-          setJobs((current) => upsert(current, next));
-        })
-        .catch((err: Error) => setError(err.message));
-    }, 1000);
+    return watchJob(job.id, (next) => {
+      setJob(next);
+      setJobs((current) => upsert(current, next));
+    });
+  }, [job?.id, job?.status, job?.active_stage]);
+
+  useEffect(() => {
+    const live =
+      job?.status === "queued" ||
+      job?.status === "running" ||
+      job?.active_stage === "waiting_for_approval";
+    if (!live) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [job?.id, job?.status, job?.active_stage]);
 
@@ -128,7 +135,7 @@ export function App() {
         })
         .catch(() => undefined);
     }
-    const signature = `${job.id}:${job.artifacts.map((item) => item.filename).join(",")}`;
+    const signature = `${job.id}:${job.artifacts.map((item) => `${item.filename}:${item.bytes}`).join(",")}`;
     if (artifactSig.current === signature) return;
     artifactSig.current = signature;
     const has = (name: string) => job.artifacts.some((item) => item.filename === name);
@@ -145,7 +152,7 @@ export function App() {
   useEffect(() => {
     const node = threadRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [job?.messages.length, job?.status]);
+  }, [job?.messages.length, job?.messages.at(-1)?.body, job?.status]);
 
   const triad = useMemo(() => {
     const pdb = (structure?.deposition?.pdb_id ?? structure?.structure_id ?? "").toUpperCase();
@@ -158,6 +165,12 @@ export function App() {
   const working =
     job?.status === "queued" ||
     (job?.status === "running" && !awaitingConfirm && !awaitingUser);
+  const elapsed = job && working
+    ? Math.max(0, Math.floor((clock - workStartedAt(job)) / 1000))
+    : 0;
+  const liveEvents = (job?.events ?? [])
+    .filter((event) => event.type === "stage.started" || event.type === "artifact.ready")
+    .slice(-4);
 
   async function onStart(event: FormEvent) {
     event.preventDefault();
@@ -256,7 +269,7 @@ export function App() {
               {awaitingConfirm
                 ? "Waiting for you to confirm the next step"
                 : working
-                  ? STAGE_LABEL[job.active_stage ?? ""] ?? "Working in the sandbox…"
+                  ? `${STAGE_LABEL[job.active_stage ?? ""] ?? "Working in the sandbox…"} · ${formatElapsed(elapsed)}`
                   : job.error
                     ? "Could not finish"
                     : "Ready for a follow-up"}
@@ -276,15 +289,23 @@ export function App() {
             <div className="who">You</div>
             <Markdown>{job.objective}</Markdown>
           </div>
-          {turns.map((turn) => {
+          {turns.map((turn, index) => {
             const status = turn.speaker !== "user" && isStatusLine(turn.body);
+            const streaming = working && index === turns.length - 1 && turn.speaker !== "user";
             return (
               <div
-                className={`bubble ${turn.speaker === "user" ? "you" : "devin"}${status ? " status-line" : ""}`}
+                className={`bubble ${turn.speaker === "user" ? "you" : "devin"}${status ? " status-line" : ""}${streaming ? " streaming" : ""}`}
                 key={turn.id}
               >
                 <div className="who">{status ? "Working" : turn.speaker === "user" ? "You" : "Devin"}</div>
                 <Markdown>{turn.body}</Markdown>
+                {streaming ? (
+                  <div className="typing">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -300,7 +321,15 @@ export function App() {
           {working ? (
             <div className="bubble devin progress">
               <div className="who">Working</div>
-              <p className="progress-now">Searching, fetching, thinking…</p>
+              {liveEvents.length ? (
+                <ul className="progress-list">
+                  {liveEvents.map((event) => (
+                    <li key={event.id}>{event.message}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="progress-now">Sandbox is starting…</p>
+              )}
               <div className="typing">
                 <span />
                 <span />
@@ -394,6 +423,17 @@ function Sidebar({
       </div>
     </aside>
   );
+}
+
+function workStartedAt(job: Job): number {
+  const lastUser = [...job.messages].reverse().find((message) => message.speaker === "user");
+  return Date.parse(lastUser?.created_at ?? job.created_at);
+}
+
+function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
 function upsert(jobs: Job[], next: Job): Job[] {

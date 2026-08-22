@@ -123,27 +123,28 @@ async def stream_events(job_id: str) -> StreamingResponse:
         raise HTTPException(404, "job not found")
 
     async def generate() -> AsyncIterator[str]:
-        last = 0
+        last = ""
         while True:
             job = store.get(job_id)
             if job is None:
                 break
-            for event in job.events[last:]:
-                yield f"data: {event.model_dump_json()}\n\n"
-                last += 1
-            snapshot = {
-                "type": "job.snapshot",
-                "status": job.status.value,
-                "active_agent": job.active_agent.value if job.active_agent else None,
-                "active_stage": job.active_stage,
-                "session_url": job.session_url,
-            }
-            yield f"data: {json.dumps(snapshot)}\n\n"
-            if job.status.value in {"complete", "failed"} and last >= len(job.events):
+            public = _public_job(job)
+            payload = public.model_dump(mode="json")
+            bodies = ":".join(str(len(item.body)) for item in public.messages)
+            files = ":".join(f"{item.filename}:{item.bytes}" for item in public.artifacts)
+            signature = f"{public.status.value}:{public.active_stage}:{bodies}:{files}"
+            if signature != last:
+                yield f"data: {json.dumps({'type': 'job', 'job': payload})}\n\n"
+                last = signature
+            if public.status.value in {"complete", "failed"}:
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.on_event("startup")

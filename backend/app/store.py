@@ -62,6 +62,24 @@ class JobStore:
         self._persist(updated)
         return updated.model_copy(deep=True)
 
+    def replace_message(self, job_id: str, message_id: str, body: str, source_id: str | None = None) -> Job:
+        with self._lock:
+            job = self._jobs[job_id]
+            messages = []
+            for message in job.messages:
+                if message.id == message_id:
+                    fields: dict[str, object] = {"body": body}
+                    if source_id:
+                        fields["source_id"] = source_id
+                    message = message.model_copy(update=fields)
+                messages.append(message)
+            updated = job.model_copy(
+                update={"messages": messages, "updated_at": datetime.now(timezone.utc)}
+            )
+            self._jobs[job_id] = updated
+        self._persist(updated)
+        return updated.model_copy(deep=True)
+
     def add_message(self, job_id: str, message: Message) -> Job:
         with self._lock:
             job = self._jobs[job_id]
@@ -140,12 +158,19 @@ def _title_from(objective: str) -> str:
     return text[:72] + ("…" if len(text) > 72 else "")
 
 
-def new_message(speaker: Speaker, body: str, stage: str | None = None, artifact_ids: list[str] | None = None) -> Message:
+def new_message(
+    speaker: Speaker,
+    body: str,
+    stage: str | None = None,
+    artifact_ids: list[str] | None = None,
+    source_id: str | None = None,
+) -> Message:
     return Message(
         id=uuid4().hex[:10],
         speaker=speaker,
         body=body,
         stage=stage,
+        source_id=source_id,
         artifact_ids=artifact_ids or [],
         created_at=datetime.now(timezone.utc),
     )

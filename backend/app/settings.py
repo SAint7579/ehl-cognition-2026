@@ -21,7 +21,7 @@ class Settings(BaseModel):
     default_references: Path = Path(__file__).resolve().parents[2] / "fixtures" / "structures"
     default_chain: str = "A"
     threads: int = 2
-    poll_interval_seconds: float = 8.0
+    poll_interval_seconds: float = 0.5
     poll_timeout_seconds: float = 1800.0
 
 

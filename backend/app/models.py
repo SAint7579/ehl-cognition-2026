@@ -40,6 +40,7 @@ class Message(BaseModel):
     speaker: Speaker
     body: str
     stage: str | None = None
+    source_id: str | None = None
     artifact_ids: list[str] = Field(default_factory=list)
     created_at: datetime
 

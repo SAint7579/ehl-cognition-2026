@@ -304,6 +304,35 @@ def test_waiting_for_approval_shows_confirm_and_accepts_reply(monkeypatch, tmp_p
     assert followed["status"] == "complete"
 
 
+def test_ingest_updates_growing_devin_output(monkeypatch, tmp_path: Path) -> None:
+    fake = _install(monkeypatch, tmp_path)
+    fake.status = "running"
+    fake.status_detail = "waiting_for_user"
+    fake.messages = [
+        {"id": "grow1", "type": "devin_message", "message": "Fetching 4IDC."},
+    ]
+    client = TestClient(app)
+    created = client.post(
+        "/api/jobs",
+        json={
+            "objective": "Find the strawberry flavor enzyme structure.",
+            "devin_session_id": fake.session_id,
+        },
+    )
+    job_id = created.json()["id"]
+    first = client.get(f"/api/jobs/{job_id}").json()
+    assert any(message["body"] == "Fetching 4IDC." for message in first["messages"])
+    fake.messages[0]["message"] = "Fetching 4IDC. Coordinates are from PDB 4IDC."
+    from backend.app.executor import _ingest_messages
+
+    _ingest_messages(job_id, fake, fake.session_id)
+    later = client.get(f"/api/jobs/{job_id}").json()
+    bodies = [message["body"] for message in later["messages"] if message["speaker"] != "user"]
+    assert bodies.count("Fetching 4IDC.") == 0
+    assert any("Coordinates are from PDB 4IDC." in body for body in bodies)
+    assert sum(1 for body in bodies if "4IDC" in body) == 1
+
+
 def test_running_waiting_for_user_closes_the_turn(monkeypatch, tmp_path: Path) -> None:
     fake = _install(monkeypatch, tmp_path)
     fake.status = "running"

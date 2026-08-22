@@ -40,6 +40,39 @@ export function getJob(id: string): Promise<Job> {
   return fetch(`/api/jobs/${id}`).then((r) => parse<Job>(r));
 }
 
+export function watchJob(id: string, onJob: (job: Job) => void): () => void {
+  const source = new EventSource(`/api/jobs/${id}/events`);
+  let closed = false;
+  let fallback: number | undefined;
+  const apply = (job: Job) => {
+    onJob(job);
+    if (job.status === "complete" || job.status === "failed") {
+      closed = true;
+      source.close();
+      if (fallback !== undefined) window.clearInterval(fallback);
+    }
+  };
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data) as { job?: Job };
+      if (payload.job) apply(payload.job);
+    } catch {
+      return;
+    }
+  };
+  source.onerror = () => {
+    if (closed || fallback !== undefined) return;
+    fallback = window.setInterval(() => {
+      getJob(id).then(apply).catch(() => undefined);
+    }, 1000);
+  };
+  return () => {
+    closed = true;
+    source.close();
+    if (fallback !== undefined) window.clearInterval(fallback);
+  };
+}
+
 export function sendMessage(id: string, body: string): Promise<Job> {
   return fetch(`/api/jobs/${id}/messages`, {
     method: "POST",

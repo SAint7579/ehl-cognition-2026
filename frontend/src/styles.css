@@ -289,6 +289,10 @@ button {
   font-size: 13px;
 }
 
+.bubble.streaming .markdown {
+  min-height: 1.2em;
+}
+
 .typing {
   display: flex;
   gap: 5px;

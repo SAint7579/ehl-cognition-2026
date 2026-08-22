@@ -131,8 +131,8 @@ def run_job(
         store.add_message(
             job_id,
             new_message(
-                Speaker.system,
-                "Working in the sandbox.",
+                Speaker.planner,
+                "Opened the sandbox. I'll post results here as they land.",
                 stage="sandbox",
             ),
         )
@@ -263,6 +263,8 @@ def resume_running_jobs() -> None:
 
 
 _last_sync: dict[str, float] = {}
+_last_harvest: dict[str, float] = {}
+HARVEST_EVERY = 3.0
 
 
 def job_is_busy(job: object) -> bool:
@@ -280,7 +282,7 @@ def sync_job(job_id: str) -> None:
     if job is None or not job.devin_session_id:
         return
     now = time.monotonic()
-    if job.status != JobStatus.running and now - _last_sync.get(job_id, 0) < 2:
+    if now - _last_sync.get(job_id, 0) < settings.poll_interval_seconds:
         return
     _last_sync[job_id] = now
     try:
@@ -293,10 +295,13 @@ def sync_job(job_id: str) -> None:
     _set_stage(job_id, status, detail)
     try:
         _ingest_messages(job_id, client, session_id)
-        if job.status == JobStatus.running:
-            _harvest(job_id, client, session_id, session, {})
+        due = now - _last_harvest.get(job_id, 0) >= HARVEST_EVERY
+        closing = job.status == JobStatus.running and _turn_complete(status, detail)
+        if job.status == JobStatus.running and (due or closing):
+            _harvest(job_id, client, session_id, session, {}, force=closing, scan_messages=closing)
+            _last_harvest[job_id] = now
     except Exception:
-        added = []
+        pass
     if _is_failed(status, detail):
         return
     if detail == NEEDS_CONFIRM:
@@ -324,7 +329,7 @@ def _finish_from_session(
     else:
         session = client.get_session(session_id)
         _ingest_messages(job_id, client, session_id)
-        _harvest(job_id, client, session_id, session, {})
+        _harvest(job_id, client, session_id, session, {}, force=True, scan_messages=True)
         status, detail = _status_fields(session)
         if detail == NEEDS_CONFIRM:
             _hold_for_confirm(job_id)
@@ -364,6 +369,7 @@ def _await_session(
     deadline = now() + settings.poll_timeout_seconds
     known_bytes: dict[str, int] = {}
     last_stage = ""
+    last_harvest = 0.0
     saw_work = False
     new_reply = False
     while now() < deadline:
@@ -377,20 +383,31 @@ def _await_session(
             saw_work = True
         if _ingest_messages(job_id, client, session_id):
             new_reply = True
-        known_bytes = _harvest(job_id, client, session_id, session, known_bytes)
+        closing = _turn_complete(status, detail)
+        if closing or now() - last_harvest >= HARVEST_EVERY:
+            known_bytes = _harvest(
+                job_id,
+                client,
+                session_id,
+                session,
+                known_bytes,
+                force=closing,
+                scan_messages=closing,
+            )
+            last_harvest = now()
         if _is_failed(status, detail):
             raise DevinError(session.get("error") or session.get("message") or detail or status)
         if detail == NEEDS_CONFIRM:
             _hold_for_confirm(job_id)
             return "awaiting"
-        if _turn_complete(status, detail):
+        if closing:
             replied = _assistant_replied_since_user(job_id)
             if wait_for_new_work and not (saw_work or new_reply or replied):
                 sleep(settings.poll_interval_seconds)
                 continue
             try:
                 _ingest_messages(job_id, client, session_id)
-                _harvest(job_id, client, session_id, session, known_bytes)
+                _harvest(job_id, client, session_id, session, known_bytes, force=True, scan_messages=True)
             except Exception:
                 pass
             return "done"
@@ -471,7 +488,6 @@ def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> lis
     if job is None:
         return []
     seen = set(job.seen_devin_ids)
-    known_bodies = {_fingerprint(message.body) for message in job.messages}
     added: list[str] = []
     for raw in client.list_messages(session_id):
         kind = str(raw.get("type") or raw.get("role") or raw.get("source") or "").lower()
@@ -483,15 +499,40 @@ def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> lis
             continue
         speaker, body = parsed
         keys = _message_keys(raw, speaker.value, body)
-        if seen.intersection(keys) or _fingerprint(body) in known_bodies:
+        source_id = str(raw.get("event_id") or raw.get("id") or raw.get("message_id") or "")
+        job = store.get(job_id) or job
+        existing = _existing_message(job, source_id, body)
+        if existing is not None:
+            if body != existing.body:
+                store.replace_message(job_id, existing.id, body, source_id or existing.source_id)
+                added.append(source_id or existing.id)
+            seen.update(keys)
+            continue
+        if seen.intersection(keys) or _fingerprint(body) in {_fingerprint(item.body) for item in job.messages}:
             seen.update(keys)
             continue
         seen.update(keys)
-        known_bodies.add(_fingerprint(body))
-        store.add_message(job_id, new_message(speaker, body, stage=_stage_for(speaker)))
+        store.add_message(
+            job_id,
+            new_message(speaker, body, stage=_stage_for(speaker), source_id=source_id or None),
+        )
         added.append(keys[0])
     store.update(job_id, seen_devin_ids=sorted(seen), active_agent=_latest_agent(job_id))
     return added
+
+
+def _existing_message(job: object, source_id: str, body: str):
+    messages = getattr(job, "messages", [])
+    if source_id:
+        for message in messages:
+            if message.source_id == source_id:
+                return message
+    for message in reversed(messages):
+        if message.speaker in {Speaker.user, Speaker.system}:
+            continue
+        if body.startswith(message.body) and len(body) > len(message.body):
+            return message
+    return None
 
 
 def _message_keys(raw: dict[str, Any], speaker: str, body: str) -> list[str]:
@@ -515,26 +556,36 @@ def _harvest(
     session_id: str,
     session: dict[str, Any],
     known_bytes: dict[str, int],
+    *,
+    force: bool = False,
+    scan_messages: bool = False,
 ) -> dict[str, int]:
     out = job_dir(job_id)
     out.mkdir(parents=True, exist_ok=True)
-    pending: list[tuple[str, str]] = []
+    pending: list[tuple[str, str, int | None]] = []
     for item in client.list_attachments(session_id):
         name = str(item.get("name") or item.get("filename") or "")
         basename = Path(name).name
         url = item.get("url") or item.get("download_url")
         if basename in ARTIFACT_FILES and url:
-            pending.append((basename, str(url)))
-    for raw in client.list_messages(session_id):
-        for url in ATTACHMENT_URL.findall(_message_text(raw)):
-            basename = Path(url).name
-            if basename in ARTIFACT_FILES:
-                pending.append((basename, url))
+            pending.append((basename, str(url), _remote_size(item)))
+    if scan_messages:
+        for raw in client.list_messages(session_id):
+            for url in ATTACHMENT_URL.findall(_message_text(raw)):
+                basename = Path(url).name
+                if basename in ARTIFACT_FILES:
+                    pending.append((basename, url, None))
     seen_urls: set[str] = set()
-    for basename, url in pending:
+    for basename, url, remote_size in pending:
         if url in seen_urls:
             continue
         seen_urls.add(url)
+        path = out / basename
+        if path.is_file() and not force:
+            local = path.stat().st_size
+            if remote_size is None or remote_size == local:
+                known_bytes[basename] = local
+                continue
         try:
             data = client.download(url)
         except Exception as error:
@@ -557,8 +608,31 @@ def _harvest(
             else:
                 continue
             known_bytes = _write_artifact(job_id, out, basename, data, known_bytes)
-    store.update(job_id, artifacts=list_artifacts(job_id), limitations=_limitations(job_id))
+    artifacts = list_artifacts(job_id)
+    limitations = _limitations(job_id)
+    job = store.get(job_id)
+    changed = (
+        job is None
+        or _artifact_signature(job.artifacts) != _artifact_signature(artifacts)
+        or job.limitations != limitations
+    )
+    if changed:
+        store.update(job_id, artifacts=artifacts, limitations=limitations)
     return known_bytes
+
+
+def _remote_size(item: dict[str, Any]) -> int | None:
+    for key in ("size", "bytes", "content_length", "contentLength"):
+        value = item.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
+
+
+def _artifact_signature(items: list[Any]) -> tuple[tuple[str, int], ...]:
+    return tuple((str(getattr(item, "filename", "")), int(getattr(item, "bytes", 0))) for item in items)
 
 
 def _write_artifact(
@@ -568,9 +642,13 @@ def _write_artifact(
     data: bytes,
     known_bytes: dict[str, int],
 ) -> dict[str, int]:
-    if known_bytes.get(basename) == len(data) and (out / basename).is_file():
+    path = out / basename
+    if path.is_file() and path.stat().st_size == len(data):
+        known_bytes[basename] = len(data)
         return known_bytes
-    (out / basename).write_bytes(data)
+    if known_bytes.get(basename) == len(data) and path.is_file():
+        return known_bytes
+    path.write_bytes(data)
     known_bytes[basename] = len(data)
     store.add_event(
         job_id,
