@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "AlignmentSequence": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "gap_count": {
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "gap_count"
+      ],
+      "title": "AlignmentSequence",
+      "type": "object"
+    },
+    "FileDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "title": "FileDigest",
+      "type": "object"
+    },
+    "ProvenanceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Argv"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "evidence_type": {
+          "enum": [
+            "KNOWN",
+            "CALCULATED",
+            "PREDICTED",
+            "EXPERIMENTAL"
+          ],
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "input_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Input Files",
+          "type": "array"
+        },
+        "output_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Output Files",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "stderr": {
+          "default": "",
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "default": "",
+          "title": "Stdout",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "tool_name",
+        "tool_version",
+        "parameters",
+        "input_files",
+        "output_files",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "evidence_type"
+      ],
+      "title": "ProvenanceRecord",
+      "type": "object"
+    }
+  },
+  "$id": "https://example.org/bio-tools/schemas/alignment.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "alignment_length": {
+      "title": "Alignment Length",
+      "type": "integer"
+    },
+    "n_sequences": {
+      "title": "N Sequences",
+      "type": "integer"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProvenanceRecord"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sequences": {
+      "items": {
+        "$ref": "#/$defs/AlignmentSequence"
+      },
+      "title": "Sequences",
+      "type": "array"
+    },
+    "target_row_id": {
+      "title": "Target Row Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "n_sequences",
+    "alignment_length",
+    "sequences",
+    "target_row_id",
+    "provenance"
+  ],
+  "schema_version": "1.0.0",
+  "title": "AlignmentArtifact",
+  "type": "object"
+}

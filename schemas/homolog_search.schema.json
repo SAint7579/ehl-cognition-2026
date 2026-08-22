@@ -1,0 +1,288 @@
+{
+  "$defs": {
+    "DiversitySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "max_percent_identity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Percent Identity"
+        },
+        "median_percent_identity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median Percent Identity"
+        },
+        "min_percent_identity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Min Percent Identity"
+        },
+        "n_hits": {
+          "title": "N Hits",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n_hits",
+        "min_percent_identity",
+        "median_percent_identity",
+        "max_percent_identity"
+      ],
+      "title": "DiversitySummary",
+      "type": "object"
+    },
+    "FileDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "title": "FileDigest",
+      "type": "object"
+    },
+    "HomologHit": {
+      "additionalProperties": false,
+      "properties": {
+        "accession": {
+          "title": "Accession",
+          "type": "string"
+        },
+        "alignment_length": {
+          "title": "Alignment Length",
+          "type": "integer"
+        },
+        "bit_score": {
+          "title": "Bit Score",
+          "type": "number"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "evalue": {
+          "title": "Evalue",
+          "type": "number"
+        },
+        "percent_identity": {
+          "description": "Pairwise identity as a percentage on a 0-100 scale.",
+          "title": "Percent Identity",
+          "type": "number"
+        },
+        "query_coverage": {
+          "title": "Query Coverage",
+          "type": "number"
+        },
+        "target_coverage": {
+          "title": "Target Coverage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "accession",
+        "description",
+        "evalue",
+        "bit_score",
+        "percent_identity",
+        "alignment_length",
+        "query_coverage",
+        "target_coverage"
+      ],
+      "title": "HomologHit",
+      "type": "object"
+    },
+    "ProvenanceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Argv"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "evidence_type": {
+          "enum": [
+            "KNOWN",
+            "CALCULATED",
+            "PREDICTED",
+            "EXPERIMENTAL"
+          ],
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "input_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Input Files",
+          "type": "array"
+        },
+        "output_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Output Files",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "stderr": {
+          "default": "",
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "default": "",
+          "title": "Stdout",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "tool_name",
+        "tool_version",
+        "parameters",
+        "input_files",
+        "output_files",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "evidence_type"
+      ],
+      "title": "ProvenanceRecord",
+      "type": "object"
+    }
+  },
+  "$id": "https://example.org/bio-tools/schemas/homolog_search.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Counts",
+      "type": "object"
+    },
+    "database_path": {
+      "title": "Database Path",
+      "type": "string"
+    },
+    "diversity": {
+      "$ref": "#/$defs/DiversitySummary"
+    },
+    "hits": {
+      "items": {
+        "$ref": "#/$defs/HomologHit"
+      },
+      "title": "Hits",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProvenanceRecord"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target_id": {
+      "title": "Target Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target_id",
+    "database_path",
+    "hits",
+    "counts",
+    "diversity",
+    "provenance"
+  ],
+  "schema_version": "1.0.0",
+  "title": "HomologSearchArtifact",
+  "type": "object"
+}

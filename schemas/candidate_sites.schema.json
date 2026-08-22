@@ -1,0 +1,493 @@
+{
+  "$defs": {
+    "CandidateShortlist": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_type": {
+          "const": "CALCULATED",
+          "default": "CALCULATED",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "filters": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Filters",
+          "type": "object"
+        },
+        "n_sites": {
+          "title": "N Sites",
+          "type": "integer"
+        },
+        "objective": {
+          "title": "Objective",
+          "type": "string"
+        },
+        "sites": {
+          "items": {
+            "$ref": "#/$defs/CandidateSite"
+          },
+          "title": "Sites",
+          "type": "array"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Weights",
+          "type": "object"
+        }
+      },
+      "required": [
+        "objective",
+        "filters",
+        "weights",
+        "n_sites",
+        "sites"
+      ],
+      "title": "CandidateShortlist",
+      "type": "object"
+    },
+    "CandidateSite": {
+      "additionalProperties": false,
+      "properties": {
+        "author_residue": {
+          "title": "Author Residue",
+          "type": "integer"
+        },
+        "conservation": {
+          "title": "Conservation",
+          "type": "number"
+        },
+        "distance_to_active_site_angstrom": {
+          "title": "Distance To Active Site Angstrom",
+          "type": "number"
+        },
+        "evidence_type": {
+          "const": "CALCULATED",
+          "default": "CALCULATED",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "insertion_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Insertion Code"
+        },
+        "msa_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Msa Column"
+        },
+        "one_letter": {
+          "title": "One Letter",
+          "type": "string"
+        },
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        },
+        "rsa": {
+          "title": "Rsa",
+          "type": "number"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "secondary_structure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Secondary Structure"
+        },
+        "structure_index": {
+          "title": "Structure Index",
+          "type": "integer"
+        },
+        "sub_scores": {
+          "$ref": "#/$defs/CandidateSubScores"
+        },
+        "substitution_options": {
+          "items": {
+            "$ref": "#/$defs/CandidateSubstitutionOption"
+          },
+          "title": "Substitution Options",
+          "type": "array"
+        },
+        "target_position": {
+          "title": "Target Position",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "author_residue",
+        "insertion_code",
+        "structure_index",
+        "target_position",
+        "msa_column",
+        "one_letter",
+        "conservation",
+        "rsa",
+        "secondary_structure",
+        "distance_to_active_site_angstrom",
+        "sub_scores",
+        "score",
+        "rank",
+        "substitution_options"
+      ],
+      "title": "CandidateSite",
+      "type": "object"
+    },
+    "CandidateSubScores": {
+      "additionalProperties": false,
+      "properties": {
+        "burial": {
+          "title": "Burial",
+          "type": "number"
+        },
+        "evidence_type": {
+          "const": "CALCULATED",
+          "default": "CALCULATED",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "exposure": {
+          "title": "Exposure",
+          "type": "number"
+        },
+        "loop": {
+          "title": "Loop",
+          "type": "number"
+        },
+        "plasticity": {
+          "title": "Plasticity",
+          "type": "number"
+        },
+        "proximity": {
+          "title": "Proximity",
+          "type": "number"
+        },
+        "remoteness": {
+          "title": "Remoteness",
+          "type": "number"
+        },
+        "variability": {
+          "title": "Variability",
+          "type": "number"
+        }
+      },
+      "required": [
+        "proximity",
+        "remoteness",
+        "burial",
+        "exposure",
+        "plasticity",
+        "variability",
+        "loop"
+      ],
+      "title": "CandidateSubScores",
+      "type": "object"
+    },
+    "CandidateSubstitutionOption": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "evidence_type": {
+          "const": "CALCULATED",
+          "default": "CALCULATED",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "frequency": {
+          "title": "Frequency",
+          "type": "number"
+        },
+        "residue": {
+          "title": "Residue",
+          "type": "string"
+        },
+        "source": {
+          "const": "observed_in_homologs",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "residue",
+        "count",
+        "frequency",
+        "source"
+      ],
+      "title": "CandidateSubstitutionOption",
+      "type": "object"
+    },
+    "FileDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "title": "FileDigest",
+      "type": "object"
+    },
+    "ProvenanceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Argv"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "evidence_type": {
+          "enum": [
+            "KNOWN",
+            "CALCULATED",
+            "PREDICTED",
+            "EXPERIMENTAL"
+          ],
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "input_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Input Files",
+          "type": "array"
+        },
+        "output_files": {
+          "items": {
+            "$ref": "#/$defs/FileDigest"
+          },
+          "title": "Output Files",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "stderr": {
+          "default": "",
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "default": "",
+          "title": "Stdout",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "tool_name",
+        "tool_version",
+        "parameters",
+        "input_files",
+        "output_files",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "evidence_type"
+      ],
+      "title": "ProvenanceRecord",
+      "type": "object"
+    },
+    "StructureWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "title": "StructureWarning",
+      "type": "object"
+    }
+  },
+  "$id": "https://example.org/bio-tools/schemas/candidate_sites.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_type": {
+      "const": "CALCULATED",
+      "default": "CALCULATED",
+      "title": "Evidence Type",
+      "type": "string"
+    },
+    "feature_definitions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Feature Definitions",
+      "type": "object"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProvenanceRecord"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "score_definitions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Score Definitions",
+      "type": "object"
+    },
+    "shortlists": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CandidateShortlist"
+      },
+      "propertyNames": {
+        "enum": [
+          "activity",
+          "stability"
+        ]
+      },
+      "title": "Shortlists",
+      "type": "object"
+    },
+    "target_id": {
+      "title": "Target Id",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/StructureWarning"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "target_id",
+    "provenance",
+    "parameters",
+    "feature_definitions",
+    "score_definitions",
+    "shortlists",
+    "warnings",
+    "limitations"
+  ],
+  "schema_version": "1.0.0",
+  "title": "CandidateSitesArtifact",
+  "type": "object"
+}

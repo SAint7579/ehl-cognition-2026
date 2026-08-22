@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "ResidueAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "acc": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Acc"
+        },
+        "altloc_present": {
+          "title": "Altloc Present",
+          "type": "boolean"
+        },
+        "author_residue": {
+          "title": "Author Residue",
+          "type": "integer"
+        },
+        "conservation": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conservation"
+        },
+        "dssp_8state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dssp 8State"
+        },
+        "entropy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entropy"
+        },
+        "evidence_type": {
+          "const": "CALCULATED",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "gap_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap Fraction"
+        },
+        "insertion_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Insertion Code"
+        },
+        "msa_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Msa Column"
+        },
+        "one_letter": {
+          "title": "One Letter",
+          "type": "string"
+        },
+        "resname": {
+          "title": "Resname",
+          "type": "string"
+        },
+        "rsa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rsa"
+        },
+        "secondary_structure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Secondary Structure"
+        },
+        "structure_index": {
+          "title": "Structure Index",
+          "type": "integer"
+        },
+        "target_position": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Position"
+        },
+        "target_residue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Residue"
+        }
+      },
+      "required": [
+        "structure_index",
+        "author_residue",
+        "insertion_code",
+        "resname",
+        "one_letter",
+        "target_position",
+        "target_residue",
+        "msa_column",
+        "conservation",
+        "gap_fraction",
+        "entropy",
+        "dssp_8state",
+        "secondary_structure",
+        "acc",
+        "rsa",
+        "altloc_present",
+        "evidence_type"
+      ],
+      "title": "ResidueAnnotation",
+      "type": "object"
+    },
+    "StructureWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "title": "StructureWarning",
+      "type": "object"
+    }
+  },
+  "$id": "https://example.org/bio-tools/schemas/residue_annotations.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "annotations": {
+      "items": {
+        "$ref": "#/$defs/ResidueAnnotation"
+      },
+      "title": "Annotations",
+      "type": "array"
+    },
+    "chain": {
+      "title": "Chain",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "structure_id": {
+      "title": "Structure Id",
+      "type": "string"
+    },
+    "target_id": {
+      "title": "Target Id",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/StructureWarning"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "structure_id",
+    "target_id",
+    "chain",
+    "annotations",
+    "warnings",
+    "limitations"
+  ],
+  "schema_version": "1.0.0",
+  "title": "ResidueAnnotationsArtifact",
+  "type": "object"
+}
