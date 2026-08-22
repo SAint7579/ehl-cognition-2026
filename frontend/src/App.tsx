@@ -13,7 +13,7 @@ import {
   loadStructurePdb,
   sendMessage,
 } from "./api";
-import { visibleMessages } from "./chat";
+import { isStatusLine, visibleMessages } from "./chat";
 import { Markdown } from "./Markdown";
 import { StructureViewer } from "./StructureViewer";
 import type {
@@ -27,8 +27,10 @@ import type {
   StructureSummary,
 } from "./types";
 
-const DEFAULT_OBJECTIVE =
-  "Make IsPETase about 30% more resistant to heat. Preserve catalytic function.";
+const DEFAULT_OBJECTIVE = "";
+
+const PETASE_TRIAD = new Set([160, 206, 237]);
+const PETASE_STRUCTURES = new Set(["6EQE", "5XJH"]);
 
 const STAGE_LABEL: Record<string, string> = {
   working: "Working in the sandbox…",
@@ -81,7 +83,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!job || (job.status !== "queued" && job.status !== "running")) return;
+    if (!job) return;
+    const live =
+      job.status === "queued" ||
+      job.status === "running" ||
+      job.active_stage === "waiting_for_approval";
+    if (!live) return;
     const timer = window.setInterval(() => {
       getJob(job.id)
         .then((next) => {
@@ -91,7 +98,7 @@ export function App() {
         .catch((err: Error) => setError(err.message));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [job?.id, job?.status]);
+  }, [job?.id, job?.status, job?.active_stage]);
 
   useEffect(() => {
     if (!job) {
@@ -110,7 +117,8 @@ export function App() {
       job.artifacts.length === 0 &&
       job.status !== "running" &&
       job.status !== "queued" &&
-      restored.current !== job.id;
+      restored.current !== job.id &&
+      !job.messages.some((item) => item.speaker !== "user" && item.speaker !== "system" && item.body.length > 80);
     if (needsRestore) {
       restored.current = job.id;
       harvestJob(job.id)
@@ -139,22 +147,17 @@ export function App() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [job?.messages.length, job?.status]);
 
-  const triad = useMemo(
-    () => residues.filter((row) => [160, 206, 237].includes(row.author_residue)),
-    [residues],
-  );
+  const triad = useMemo(() => {
+    const pdb = (structure?.deposition?.pdb_id ?? structure?.structure_id ?? "").toUpperCase();
+    if (!PETASE_STRUCTURES.has(pdb)) return [];
+    return residues.filter((row) => PETASE_TRIAD.has(row.author_residue));
+  }, [residues, structure]);
   const turns = useMemo(() => (job ? visibleMessages(job.messages) : []), [job]);
-  const working = job?.status === "queued" || job?.status === "running";
-  const progress = useMemo(
-    () =>
-      (job?.events ?? []).filter(
-        (event) =>
-          event.type === "artifact.ready" ||
-          event.type === "stage.started" ||
-          event.type === "agent.message",
-      ),
-    [job],
-  );
+  const awaitingConfirm = job?.active_stage === "waiting_for_approval";
+  const awaitingUser = job?.active_stage === "waiting_for_user";
+  const working =
+    job?.status === "queued" ||
+    (job?.status === "running" && !awaitingConfirm && !awaitingUser);
 
   async function onStart(event: FormEvent) {
     event.preventDefault();
@@ -173,14 +176,18 @@ export function App() {
     }
   }
 
-  async function onSend(event: FormEvent) {
-    event.preventDefault();
-    if (!job || !draft.trim() || working) return;
-    const text = draft.trim();
+  async function onSendText(text: string) {
+    if (!job || !text.trim() || working) return;
     setDraft("");
-    const updated = await sendMessage(job.id, text);
+    const updated = await sendMessage(job.id, text.trim());
     setJob(updated);
     setJobs((current) => upsert(current, updated));
+  }
+
+  async function onSend(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.trim()) return;
+    await onSendText(draft);
   }
 
   function onNew() {
@@ -211,11 +218,12 @@ export function App() {
           onNew={onNew}
         />
         <form className="start" onSubmit={onStart}>
-          <p className="eyebrow">Protein investigation</p>
+          <p className="eyebrow">Investigation</p>
           <h1>What should we look at?</h1>
           <p className="lede">
             Ask in plain language. The work runs in a Devin Cloud sandbox. This
-            window is the conversation and the evidence.
+            window is the conversation and the evidence. There is no default
+            enzyme — the request is the spec.
           </p>
           {health && !health.configured ? (
             <p className="warn">Add DEVIN_API_KEY and DEVIN_ORG_ID to .env, then restart the API.</p>
@@ -223,9 +231,12 @@ export function App() {
           <textarea
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
-            placeholder="Describe the investigation…"
+            placeholder="Name the protein, reaction, or question…"
           />
-          <button type="submit" disabled={starting || health?.configured === false}>
+          <button
+            type="submit"
+            disabled={starting || health?.configured === false || !objective.trim()}
+          >
             {starting ? "Starting…" : "Start investigation"}
           </button>
           {error ? <p className="warn">{error}</p> : null}
@@ -242,11 +253,21 @@ export function App() {
           <div>
             <h1>{job.title}</h1>
             <p className="status">
-              {working
-                ? STAGE_LABEL[job.active_stage ?? ""] ?? "Working in the sandbox…"
-                : job.error
-                  ? "Could not finish"
-                  : "Ready for a follow-up"}
+              {awaitingConfirm
+                ? "Waiting for you to confirm the next step"
+                : working
+                  ? STAGE_LABEL[job.active_stage ?? ""] ?? "Working in the sandbox…"
+                  : job.error
+                    ? "Could not finish"
+                    : "Ready for a follow-up"}
+              {job.session_url ? (
+                <>
+                  {" · "}
+                  <a href={job.session_url} target="_blank" rel="noreferrer">
+                    Watch steps in Devin
+                  </a>
+                </>
+              ) : null}
             </p>
           </div>
         </header>
@@ -255,24 +276,31 @@ export function App() {
             <div className="who">You</div>
             <Markdown>{job.objective}</Markdown>
           </div>
-          {turns.map((turn) => (
-            <div className={`bubble ${turn.speaker === "user" ? "you" : "devin"}`} key={turn.id}>
-              <div className="who">{turn.speaker === "user" ? "You" : "Devin"}</div>
-              <Markdown>{turn.body}</Markdown>
+          {turns.map((turn) => {
+            const status = turn.speaker !== "user" && isStatusLine(turn.body);
+            return (
+              <div
+                className={`bubble ${turn.speaker === "user" ? "you" : "devin"}${status ? " status-line" : ""}`}
+                key={turn.id}
+              >
+                <div className="who">{status ? "Working" : turn.speaker === "user" ? "You" : "Devin"}</div>
+                <Markdown>{turn.body}</Markdown>
+              </div>
+            );
+          })}
+          {awaitingConfirm ? (
+            <div className="bubble devin confirm">
+              <div className="who">Devin</div>
+              <p>Confirm the next step to continue. This prompt is only in the Devin app unless you answer here.</p>
+              <button type="button" className="confirm-go" onClick={() => void onSendText("Yes, proceed with the next step.")}>
+                Yes, proceed
+              </button>
             </div>
-          ))}
+          ) : null}
           {working ? (
             <div className="bubble devin progress">
-              <div className="who">Devin</div>
-              {progress.length ? (
-                <ul className="progress-list">
-                  {progress.slice(-8).map((event) => (
-                    <li key={event.id}>{event.message}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="progress-now">Starting the sandbox…</p>
-              )}
+              <div className="who">Working</div>
+              <p className="progress-now">Searching, fetching, thinking…</p>
               <div className="typing">
                 <span />
                 <span />
@@ -457,7 +485,7 @@ function StructureViewCard({
   const top = structure?.foldseek_hits?.[0];
   return (
     <div className="card viewer-card">
-      <h3>{structure?.deposition?.pdb_id ?? structure?.structure_id ?? "6EQE"}</h3>
+      <h3>{structure?.deposition?.pdb_id ?? structure?.structure_id ?? "Structure"}</h3>
       <p className="card-meta">
         Deposited crystal structure, not a computed fold
         {structure ? ` · ${structure.modelled_residue_count} modelled residues` : ""}

@@ -18,13 +18,25 @@ const HIDDEN = [
 ];
 
 export function visibleMessages(messages: Message[]): Message[] {
-  return messages
-    .map((message) => ({ ...message, body: cleanBody(message.body), artifact_ids: [] }))
-    .filter((message) => {
-      if (!message.body) return false;
-      if (message.speaker === "system") return false;
-      return !HIDDEN.some((pattern) => pattern.test(message.body));
-    });
+  const seen = new Set<string>();
+  const visible: Message[] = [];
+  for (const message of messages) {
+    const body = cleanBody(message.body);
+    if (!body || message.speaker === "system") continue;
+    if (HIDDEN.some((pattern) => pattern.test(body))) continue;
+    const fingerprint = body.replace(/\s+/g, " ").slice(0, 180);
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    visible.push({ ...message, body, artifact_ids: [] });
+  }
+  return visible;
+}
+
+export function isStatusLine(body: string): boolean {
+  if (body.length > 320) return false;
+  return /^(on it|search|searched|fetch|fetching|pull|pulling|thought|looking|checking|running|found|opening|cloned)/i.test(
+    body.trim(),
+  );
 }
 
 export function cleanBody(body: string): string {

@@ -22,7 +22,27 @@ NowFn = Callable[[], float]
 
 DONE_OK = frozenset({"exit", "finished", "complete", "completed", "suspended"})
 DONE_FAIL = frozenset({"error", "expired", "failed"})
-TURN_IDLE = frozenset({"waiting_for_user", "finished", "waiting_for_approval"})
+TURN_IDLE = frozenset({"waiting_for_user", "finished"})
+NEEDS_CONFIRM = "waiting_for_approval"
+BUSY_STAGES = frozenset({
+    "working",
+    "running",
+    "new",
+    "claimed",
+    "resuming",
+    "follow-up",
+    "import",
+    "sandbox",
+    "plan",
+    "homolog-search",
+    "conservation",
+    "structure",
+    "rank",
+})
+CONFIRM_PROMPT = (
+    "Devin is waiting for you to confirm the next step. "
+    "Reply **yes** to proceed, or tell it what to do instead."
+)
 FAIL_DETAIL = frozenset({
     "error",
     "usage_limit_exceeded",
@@ -242,10 +262,27 @@ def resume_running_jobs() -> None:
             store.add_event(job.id, new_event("job.failed", str(error)))
 
 
+_last_sync: dict[str, float] = {}
+
+
+def job_is_busy(job: object) -> bool:
+    status = getattr(job, "status", None)
+    stage = getattr(job, "active_stage", None) or "working"
+    if status == JobStatus.queued:
+        return True
+    if status != JobStatus.running:
+        return False
+    return stage in BUSY_STAGES
+
+
 def sync_job(job_id: str) -> None:
     job = store.get(job_id)
-    if job is None or job.status != JobStatus.running or not job.devin_session_id:
+    if job is None or not job.devin_session_id:
         return
+    now = time.monotonic()
+    if job.status != JobStatus.running and now - _last_sync.get(job_id, 0) < 2:
+        return
+    _last_sync[job_id] = now
     try:
         client = get_client()
         session_id, _ = normalize_session_ref(job.devin_session_id)
@@ -256,12 +293,16 @@ def sync_job(job_id: str) -> None:
     _set_stage(job_id, status, detail)
     try:
         _ingest_messages(job_id, client, session_id)
-        _harvest(job_id, client, session_id, session, {})
+        if job.status == JobStatus.running:
+            _harvest(job_id, client, session_id, session, {})
     except Exception:
-        pass
+        added = []
     if _is_failed(status, detail):
         return
-    if _turn_complete(status, detail) and _assistant_replied_since_user(job_id):
+    if detail == NEEDS_CONFIRM:
+        _hold_for_confirm(job_id)
+        return
+    if job.status == JobStatus.running and _turn_complete(status, detail) and _assistant_replied_since_user(job_id):
         _complete_job(job_id, "Sandbox turn complete")
 
 
@@ -277,11 +318,17 @@ def _finish_from_session(
     complete_message: str = "Sandbox investigation complete",
 ) -> None:
     if wait:
-        _await_session(job_id, client, session_id, sleep, now, wait_for_new_work=wait_for_new_work)
+        outcome = _await_session(job_id, client, session_id, sleep, now, wait_for_new_work=wait_for_new_work)
+        if outcome == "awaiting":
+            return
     else:
         session = client.get_session(session_id)
         _ingest_messages(job_id, client, session_id)
         _harvest(job_id, client, session_id, session, {})
+        status, detail = _status_fields(session)
+        if detail == NEEDS_CONFIRM:
+            _hold_for_confirm(job_id)
+            return
     _complete_job(job_id, complete_message)
 
 
@@ -313,14 +360,12 @@ def _await_session(
     now: NowFn,
     *,
     wait_for_new_work: bool,
-) -> None:
+) -> str:
     deadline = now() + settings.poll_timeout_seconds
     known_bytes: dict[str, int] = {}
     last_stage = ""
     saw_work = False
     new_reply = False
-    job = store.get(job_id)
-    seen_before = set(job.seen_devin_ids) if job else set()
     while now() < deadline:
         session = client.get_session(session_id)
         status, detail = _status_fields(session)
@@ -330,13 +375,14 @@ def _await_session(
             last_stage = stage
         if _is_working(status, detail):
             saw_work = True
-        _ingest_messages(job_id, client, session_id)
-        current = store.get(job_id)
-        if current and set(current.seen_devin_ids) - seen_before:
+        if _ingest_messages(job_id, client, session_id):
             new_reply = True
         known_bytes = _harvest(job_id, client, session_id, session, known_bytes)
         if _is_failed(status, detail):
             raise DevinError(session.get("error") or session.get("message") or detail or status)
+        if detail == NEEDS_CONFIRM:
+            _hold_for_confirm(job_id)
+            return "awaiting"
         if _turn_complete(status, detail):
             replied = _assistant_replied_since_user(job_id)
             if wait_for_new_work and not (saw_work or new_reply or replied):
@@ -347,7 +393,7 @@ def _await_session(
                 _harvest(job_id, client, session_id, session, known_bytes)
             except Exception:
                 pass
-            return
+            return "done"
         sleep(settings.poll_interval_seconds)
     raise DevinError(
         f"Timed out after {int(settings.poll_timeout_seconds)}s waiting for the Devin sandbox."
@@ -396,6 +442,20 @@ def _assistant_replied_since_user(job_id: str) -> bool:
     return last_assistant >= last_user
 
 
+def _hold_for_confirm(job_id: str) -> None:
+    job = store.get(job_id)
+    already = job is not None and job.status == JobStatus.running and job.active_stage == NEEDS_CONFIRM
+    store.update(job_id, status=JobStatus.running, active_stage=NEEDS_CONFIRM, error=None)
+    if not already:
+        store.add_event(job_id, new_event("stage.started", "Waiting for you to confirm the next step", NEEDS_CONFIRM))
+    job = store.get(job_id)
+    if job is None:
+        return
+    if any("confirm the next step" in message.body.lower() for message in job.messages):
+        return
+    store.add_message(job_id, new_message(Speaker.planner, CONFIRM_PROMPT, stage="confirm"))
+
+
 def _set_stage(job_id: str, status: str, detail: str) -> None:
     job = store.get(job_id)
     stage = detail or status or "working"
@@ -406,13 +466,15 @@ def _set_stage(job_id: str, status: str, detail: str) -> None:
     store.add_event(job_id, new_event("stage.started", label, stage))
 
 
-def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> None:
+def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> list[str]:
     job = store.get(job_id)
     if job is None:
-        return
+        return []
     seen = set(job.seen_devin_ids)
+    known_bodies = {_fingerprint(message.body) for message in job.messages}
+    added: list[str] = []
     for raw in client.list_messages(session_id):
-        kind = str(raw.get("type") or raw.get("role") or "").lower()
+        kind = str(raw.get("type") or raw.get("role") or raw.get("source") or "").lower()
         if kind in {"user_message", "user"}:
             continue
         text = _message_text(raw)
@@ -420,12 +482,31 @@ def _ingest_messages(job_id: str, client: SessionClient, session_id: str) -> Non
         if parsed is None:
             continue
         speaker, body = parsed
-        key = str(raw.get("id") or raw.get("message_id") or f"{speaker.value}:{body[:120]}")
-        if key in seen:
+        keys = _message_keys(raw, speaker.value, body)
+        if seen.intersection(keys) or _fingerprint(body) in known_bodies:
+            seen.update(keys)
             continue
-        seen.add(key)
+        seen.update(keys)
+        known_bodies.add(_fingerprint(body))
         store.add_message(job_id, new_message(speaker, body, stage=_stage_for(speaker)))
+        added.append(keys[0])
     store.update(job_id, seen_devin_ids=sorted(seen), active_agent=_latest_agent(job_id))
+    return added
+
+
+def _message_keys(raw: dict[str, Any], speaker: str, body: str) -> list[str]:
+    keys = [
+        str(raw[field])
+        for field in ("event_id", "id", "message_id")
+        if raw.get(field)
+    ]
+    keys.append(f"{speaker}:{body[:120]}")
+    keys.append(_fingerprint(body))
+    return keys
+
+
+def _fingerprint(text: str) -> str:
+    return "fp:" + " ".join(text.split())[:180]
 
 
 def _harvest(

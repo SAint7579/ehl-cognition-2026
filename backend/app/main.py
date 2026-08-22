@@ -13,7 +13,14 @@ from fastapi.responses import FileResponse, StreamingResponse
 from backend.app.artifacts import artifact_path, list_artifacts
 from backend.app.chatfilter import visible_messages
 from backend.app.devin import normalize_session_ref
-from backend.app.executor import answer_follow_up, import_session, resume_running_jobs, run_job, sync_job
+from backend.app.executor import (
+    answer_follow_up,
+    import_session,
+    job_is_busy,
+    resume_running_jobs,
+    run_job,
+    sync_job,
+)
 from backend.app.models import Job, JobCreate, JobStatus, MessageCreate, Speaker
 from backend.app.settings import missing_devin_settings, settings, snapshot_configured
 from backend.app.store import new_message, store
@@ -60,7 +67,7 @@ def get_job(job_id: str) -> Job:
     job = store.get(job_id)
     if job is None:
         raise HTTPException(404, "job not found")
-    if job.status == JobStatus.running and job.devin_session_id and not os.environ.get("PYTEST_CURRENT_TEST"):
+    if job.devin_session_id and not os.environ.get("PYTEST_CURRENT_TEST"):
         sync_job(job_id)
         job = store.get(job_id) or job
     return _public_job(job)
@@ -73,8 +80,8 @@ def post_message(job_id: str, body: MessageCreate) -> Job:
         raise HTTPException(404, "job not found")
     if not job.devin_session_id:
         raise HTTPException(409, "no Devin sandbox session for this job")
-    if job.status == JobStatus.running:
-        raise HTTPException(409, "sandbox session is still running")
+    if job_is_busy(job):
+        raise HTTPException(409, "sandbox session is still working")
     store.add_message(job_id, new_message(Speaker.user, body.body.strip()))
     store.update(job_id, status=JobStatus.running, active_agent=Speaker.reviewer, active_stage="follow-up")
     _spawn(answer_follow_up, job_id, body.body)

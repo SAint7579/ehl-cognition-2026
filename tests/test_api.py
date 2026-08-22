@@ -104,6 +104,8 @@ def test_job_lifecycle_and_follow_up(monkeypatch, tmp_path: Path) -> None:
     assert "system" not in speakers
     assert "sandbox" in fake.prompts[0].lower()
     assert "bioctl investigate" in fake.prompts[0]
+    assert "do not assume" in fake.prompts[0].lower()
+    assert "--target fixtures/target_ispetase.fasta" not in fake.prompts[0].split("Scientist's request:")[0]
     names = {item["filename"] for item in job["artifacts"]}
     assert "conservation.json" in names
     assert "structure_summary.json" in names
@@ -111,11 +113,15 @@ def test_job_lifecycle_and_follow_up(monkeypatch, tmp_path: Path) -> None:
     assert any(event["type"] == "artifact.ready" for event in job["events"])
     conservation = client.get(f"/api/jobs/{job_id}/artifacts/conservation.json")
     assert conservation.status_code == 200
+    first_devin = [message["body"] for message in job["messages"] if message["speaker"] != "user"]
     asked = client.post(f"/api/jobs/{job_id}/messages", json={"body": "Why is S160 conserved?"})
     assert asked.status_code == 200
     followed = client.get(f"/api/jobs/{job_id}").json()
     assert followed["messages"][-1]["speaker"] == "reviewer"
     assert fake.sent and "S160" in fake.sent[0]
+    later = [message["body"] for message in followed["messages"] if message["speaker"] != "user"]
+    for body in first_devin:
+        assert later.count(body) == 1
 
 
 def test_unconfigured_job_fails_without_local_fallback(monkeypatch, tmp_path: Path) -> None:
@@ -273,6 +279,29 @@ def test_attachment_ref_parses_app_urls() -> None:
     )
     assert session_id == "47bd07f6571347ff9b06096e6514e0c0"
     assert url.endswith(session_id)
+
+
+def test_waiting_for_approval_shows_confirm_and_accepts_reply(monkeypatch, tmp_path: Path) -> None:
+    fake = _install(monkeypatch, tmp_path)
+    fake.status = "running"
+    fake.status_detail = "waiting_for_approval"
+    client = TestClient(app)
+    created = client.post(
+        "/api/jobs",
+        json={"objective": "Tell me about strawberry flavor compounds."},
+    )
+    job = client.get(f"/api/jobs/{created.json()['id']}").json()
+    assert job["status"] == "running"
+    assert job["active_stage"] == "waiting_for_approval"
+    assert any("confirm the next step" in message["body"].lower() for message in job["messages"])
+    fake.status_detail = "waiting_for_user"
+    replied = client.post(
+        f"/api/jobs/{job['id']}/messages",
+        json={"body": "Yes, proceed with the next step."},
+    )
+    assert replied.status_code == 200
+    followed = client.get(f"/api/jobs/{job['id']}").json()
+    assert followed["status"] == "complete"
 
 
 def test_running_waiting_for_user_closes_the_turn(monkeypatch, tmp_path: Path) -> None:

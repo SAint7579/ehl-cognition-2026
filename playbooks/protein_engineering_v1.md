@@ -13,7 +13,9 @@ scope: sequence, structure, and candidate-site scientific slices
 Record the operator's objective verbatim. Inputs are a target protein FASTA,
 an offline homolog FASTA database, a deposited structure file and chain, and
 the committed Foldseek reference structure directory. The procedure is CPU
-only and uses no database downloads or network access.
+only. Retrieving a named UniProt sequence or deposited PDB is allowed when
+the scientist named that protein. Do not download large sequence databases
+as a substitute for a specified target.
 
 ## Runtime
 
@@ -74,12 +76,12 @@ experimental validation.
 ## Prohibitions
 
 Do not describe retrieved or calculated evidence as experimental validation.
-Do not download databases, use network access in tests, add learned models, or
-run outside the CPU-native toolchain.
+Do not add learned models. Do not download large sequence databases. Retrieving
+a named UniProt record or deposited PDB is allowed.
 
 ## Escalation
 
 Escalate a failed stage, low mapping identity, missing catalytic residues,
-unexpected coordinate-system mismatch, absent required fixture, or any request
-for experimental claims to a human. Also escalate constraints that the
-pipeline records but does not enforce.
+unexpected coordinate-system mismatch, or any request for experimental claims
+to a human. Also escalate constraints that the pipeline records but does not
+enforce. Do not escalate just because the protein is not IsPETase.

@@ -28,10 +28,12 @@ def job_dir(job_id: str) -> Path:
 
 
 def ensure_structure_pdb(job_id: str) -> Path | None:
-    """Deposited 6EQE for the browser viewer. This is retrieved coordinates, not a fold."""
+    """Serve coordinates Devin attached. Fall back to 6EQE only when this job used it."""
     dest = job_dir(job_id) / "structure.pdb"
     if dest.is_file() and dest.stat().st_size > 0:
         return dest
+    if not _job_used_6eqe(job_id):
+        return None
     source = settings.default_structure
     if not source.is_file():
         return None
@@ -41,6 +43,21 @@ def ensure_structure_pdb(job_id: str) -> Path | None:
     else:
         dest.write_bytes(source.read_bytes())
     return dest if dest.is_file() else None
+
+
+def _job_used_6eqe(job_id: str) -> bool:
+    summary = job_dir(job_id) / "structure_summary.json"
+    if not summary.is_file():
+        return False
+    try:
+        data = json.loads(summary.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    deposition = data.get("deposition") if isinstance(data.get("deposition"), dict) else {}
+    pdb_id = str(deposition.get("pdb_id") or data.get("structure_id") or "").upper()
+    return pdb_id == "6EQE"
 
 
 def list_artifacts(job_id: str) -> list[ArtifactInfo]:

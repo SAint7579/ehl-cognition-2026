@@ -46,6 +46,10 @@ bioctl artifacts.
 
 Chat rules for every reply the scientist will see:
 - Markdown: short paragraphs, numbered or bulleted lists, **bold** headings.
+- While you work, post a short visible progress line as soon as you do
+  something: search, fetch a PDB/UniProt record, run a command. One line,
+  like "Searched web for FaEO PDB" or "Fetching 4IDA". Do not wait for the
+  final answer. Then send the finished answer as a separate message.
 - No role tags like [planner]. Do not repeat these instructions.
 - Do not paste the playbook. Do not dump attachment URLs or ATTACHMENT JSON.
 
@@ -62,8 +66,9 @@ def follow_up_prompt(body: str) -> str:
 scientist's actual follow-up. Do not steer back to IsPETase or re-run bioctl
 unless they asked for protein work that needs it. Do not paste this note.
 
-Reply in markdown: short paragraphs, lists, and **bold** headings. No role
-tags. No playbook paste. No attachment URLs.
+Reply in markdown. Post a short progress line first if you are fetching or
+searching, then the answer. No role tags. No playbook paste. No attachment
+URLs.
 
 Scientist:
 {body.strip()}

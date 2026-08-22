@@ -83,7 +83,7 @@ class DevinClient:
         body: dict[str, Any] = {
             "prompt": prompt,
             "title": title[:120],
-            "tags": ["protein-engineering-v1", "sandbox"],
+            "tags": ["sandbox"],
         }
         if self.snapshot_id:
             body["snapshot_id"] = self.snapshot_id
