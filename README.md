@@ -2,9 +2,11 @@
 
 ## CPU-native bioinformatics pipeline
 
-This repository contains the first scientific vertical slice: a target
+This repository contains CPU-native scientific vertical slices. A target
 protein FASTA is searched against a FASTA database with MMseqs2, aligned with
-MAFFT, and analyzed for per-column conservation in pure Python/NumPy.
+MAFFT, and analyzed for per-column conservation in pure Python/NumPy. The
+structure slice maps a deposited PDB chain to the target and MSA, computes
+DSSP annotations, and searches a committed reference set with Foldseek.
 
 Install the project into the supplied environment with
 `./.venv/bin/python -m pip install -e .`. The pipeline writes validated JSON
@@ -31,3 +33,26 @@ The single smoke-test command is:
 
 It runs the committed fixtures into the ignored `runs/` directory and prints
 the hit count, alignment length, and top conserved target positions.
+
+The structure smoke test is:
+
+```sh
+./scripts/structure_smoke_test.sh
+```
+
+It first runs the sequence pipeline, then writes structure artifacts into
+`runs/structure_smoke` and prints modelled residues, unmodelled target ranges,
+secondary-structure composition, the top Foldseek hit, and the catalytic-triad
+mapping. Structure coordinates use three distinct systems: `structure_index`
+is the extracted chain sequence index used by Foldseek, `author_residue` is
+PDB author numbering plus insertion code, and `target_position` is the
+1-based target FASTA position. MSA columns are mapped through target
+positions rather than assumed author numbering.
+
+Deposited coordinates and metadata are `KNOWN`; DSSP, Foldseek, and all
+sequence-to-structure mappings are `CALCULATED`. None of these results are
+experimental validation. Structure annotations also record warnings for
+unmodelled residues, numbering irregularities, alternate locations, and
+residues excluded or absent from DSSP.
+RSA is the raw Sander quotient and can exceed 1 for highly exposed residues,
+so such values are flagged rather than clipped.

@@ -1,0 +1,80 @@
+[
+  {
+    "chain": "A",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "6EQE",
+    "resolution": 0.92,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "c252629558ec1e83bb01a5a0de3a4b03db99b4a422c542a068cce93cd564bad7",
+    "sha256_uncompressed": "08f76ad84526d2050c2f91f002374fb82a6a76e6a5fc7c2df1e691b096daf363",
+    "source_url": "https://files.rcsb.org/download/6EQE.pdb",
+    "title": "HIGH RESOLUTION CRYSTAL STRUCTURE OF A POLYETHYLENE TEREPHTHALATE DEGRADING HYDROLASE FROM IDEONELLA SAKAIENSIS"
+  },
+  {
+    "chain": "A",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "5XJH",
+    "resolution": 1.54,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "4ec1c1e5d517b0c7bc8211dd3af07a81e75a43d00859d9b90b4fe81e1bfd9cea",
+    "sha256_uncompressed": "a0410e1407aa9ccf5fa16396a3fe329c46504fc4d6182fb438607ec23c697680",
+    "source_url": "https://files.rcsb.org/download/5XJH.pdb",
+    "title": "CRYSTAL STRUCTURE OF PETASE FROM IDEONELLA SAKAIENSIS"
+  },
+  {
+    "chain": "A",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "4CG1",
+    "resolution": 1.4,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "73f8e6258f96fa44da2d4a769dc820181412abea398e3e2199ab940891f890b4",
+    "sha256_uncompressed": "a8d38c5c059f4a1256bccc7867c088377c5fb37c9ec700caf993ff42cc661649",
+    "source_url": "https://files.rcsb.org/download/4CG1.pdb",
+    "title": "STRUCTURAL AND FUNCTIONAL STUDIES ON A THERMOSTABLE POLYETHYLENE TEREPHTHALATE DEGRADING HYDROLASE FROM THERMOBIFIDA FUSCA"
+  },
+  {
+    "chain": "A,B",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "1JFR",
+    "resolution": 1.9,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "581f3797b5f41a5a94ddb6bf01d651d82647607b61b804c819531bff875e5d13",
+    "sha256_uncompressed": "09ccb8a0905d04c45c51cfe4282d9c3b31c4deca577eaa4a955ee016bfef9bd7",
+    "source_url": "https://files.rcsb.org/download/1JFR.pdb",
+    "title": "CRYSTAL STRUCTURE OF THE STREPTOMYCES EXFOLIATUS LIPASE AT 1.9A RESOLUTION: A MODEL FOR A FAMILY OF PLATELET-ACTIVATING FACTOR ACETYLHYDROLASES"
+  },
+  {
+    "chain": "A",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "1CEX",
+    "resolution": 1.0,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "ea8c0213b5c51185f5afef8ed0bc215e7d05d24aae090c2ff24d833ab155dcc9",
+    "sha256_uncompressed": "8b45c475ddd5a04eac8caf43ca29c62d093038ed2eb1c81ad67b808c214a82c9",
+    "source_url": "https://files.rcsb.org/download/1CEX.pdb",
+    "title": "STRUCTURE OF CUTINASE"
+  },
+  {
+    "chain": "A",
+    "evidence_type": "KNOWN",
+    "experimental_method": "X-RAY DIFFRACTION",
+    "license": "RCSB PDB data license CC0 1.0",
+    "pdb_id": "1UBQ",
+    "resolution": 1.8,
+    "retrieval_date": "2026-08-22T16:43:39.255222+00:00",
+    "sha256_gz": "96de3d445d1cd880dc622235cf0e38cce8925723c5a884d720b64c566ed2eed7",
+    "sha256_uncompressed": "d4a6812d8951cf6594e6a0763f089e35f5a80b62acb3c117b2c5565228a7b161",
+    "source_url": "https://files.rcsb.org/download/1UBQ.pdb",
+    "title": "STRUCTURE OF UBIQUITIN REFINED AT 1.8 ANGSTROMS RESOLUTION"
+  }
+]

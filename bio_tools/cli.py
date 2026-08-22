@@ -14,6 +14,7 @@ from .homology import run_homolog_search
 from .msa import run_msa
 from .pipeline import run_pipeline
 from .provenance import write_json_model
+from .structure import analyze_structure
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -41,6 +42,15 @@ def _parser() -> argparse.ArgumentParser:
     conservation.add_argument("--alignment", required=True, type=Path)
     conservation.add_argument("--target-id", required=True)
     conservation.add_argument("--out", required=True, type=Path)
+
+    structure = subparsers.add_parser("structure", help="analyze a protein structure")
+    structure.add_argument("--structure", required=True, type=Path)
+    structure.add_argument("--chain", required=True)
+    structure.add_argument("--target", required=True, type=Path)
+    structure.add_argument("--conservation", type=Path)
+    structure.add_argument("--references", required=True, type=Path)
+    structure.add_argument("--out", required=True, type=Path)
+    structure.add_argument("--threads", type=int)
     return parser
 
 
@@ -64,10 +74,23 @@ def main(argv: list[str] | None = None) -> int:
             artifact = run_msa(args.homologs, args.out / "alignment.fasta", args.threads)
             _write(args.out / "alignment.json", artifact)
             print(f"alignment complete: {artifact.n_sequences} sequences")
-        else:
+        elif args.command == "conservation":
             artifact = analyze_alignment(args.alignment, args.target_id)
             _write(args.out / "conservation.json", artifact)
             print(f"conservation complete: {artifact.summary.informative_columns} informative columns")
+        else:
+            summary, annotations = analyze_structure(
+                args.structure,
+                args.chain,
+                args.target,
+                args.out,
+                args.references,
+                args.conservation,
+                args.threads,
+            )
+            _write(args.out / "structure_summary.json", summary)
+            _write(args.out / "residue_annotations.json", annotations)
+            print(f"structure complete: {summary.modelled_residue_count} modelled residues")
     except (OSError, ValueError, RuntimeError) as error:
         print(f"bioctl: {error}", file=sys.stderr)
         return 1

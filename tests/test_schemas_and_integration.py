@@ -26,7 +26,14 @@ def test_committed_schemas_match_export(tmp_path: Path) -> None:
 
     fresh = tmp_path / "schemas"
     export_schemas(fresh)
-    for name in ("homolog_search", "alignment", "conservation", "run"):
+    for name in (
+        "homolog_search",
+        "alignment",
+        "conservation",
+        "run",
+        "structure_summary",
+        "residue_annotations",
+    ):
         schema_path = ROOT / "schemas" / f"{name}.schema.json"
         fresh_path = fresh / f"{name}.schema.json"
         assert schema_path.read_bytes() == fresh_path.read_bytes()

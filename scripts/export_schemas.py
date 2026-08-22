@@ -13,8 +13,10 @@ from bio_tools.models import (
     AlignmentArtifact,
     ConservationArtifact,
     HomologSearchArtifact,
+    ResidueAnnotationsArtifact,
     RunArtifact,
     SCHEMA_VERSION,
+    StructureSummaryArtifact,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +25,8 @@ SCHEMAS = {
     "alignment": AlignmentArtifact,
     "conservation": ConservationArtifact,
     "run": RunArtifact,
+    "structure_summary": StructureSummaryArtifact,
+    "residue_annotations": ResidueAnnotationsArtifact,
 }
 
 
