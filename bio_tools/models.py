@@ -322,3 +322,83 @@ class CandidateSitesArtifact(StrictModel):
     warnings: list[StructureWarning]
     evidence_type: Literal["CALCULATED"] = "CALCULATED"
     limitations: list[str]
+
+
+class ConstraintRecord(StrictModel):
+    key: str
+    value: str
+    enforcement: Literal["ENFORCED_BY_PIPELINE", "RECORDED_ONLY"]
+    note: str
+
+
+class PlaybookReference(StrictModel):
+    id: str
+    name: str
+    version: str
+    path: str
+    digest: FileDigest
+
+
+class InvestigationInputs(StrictModel):
+    target: FileDigest
+    database: FileDigest
+    structure: FileDigest
+    references_path: str
+    chain: str
+
+
+class InvestigationStage(StrictModel):
+    stage: str
+    status: Literal["COMPLETED", "FAILED", "SKIPPED"]
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration_seconds: float | None
+    artifact_paths: list[str]
+    artifact_digests: list[FileDigest]
+    provenance: list[ProvenanceRecord]
+    warnings: list[StructureWarning]
+    error: str | None
+
+
+class InvestigationWarning(StructureWarning):
+    stage: str
+
+
+class FinalResultSite(StrictModel):
+    rank: int
+    author_residue: int
+    target_position: int
+    one_letter: str
+    conservation: float
+    rsa: float
+    distance_to_active_site_angstrom: float
+    score: float
+    substitution_options: list[CandidateSubstitutionOption]
+    evidence_type: Literal["CALCULATED"]
+
+
+class FinalResultShortlist(StrictModel):
+    objective: str
+    n_total: int
+    top_n: int
+    sites: list[FinalResultSite]
+
+
+class FinalResultArtifact(StrictModel):
+    schema_version: str = SCHEMA_VERSION
+    result_version: Literal["v1"] = "v1"
+    run_id: str
+    playbook: PlaybookReference
+    objective: str
+    constraints: list[ConstraintRecord]
+    inputs: InvestigationInputs
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: float
+    stages: list[InvestigationStage]
+    artifact_index: dict[str, list[str]]
+    shortlists: dict[Literal["activity", "stability"], FinalResultShortlist]
+    evidence_labels: dict[str, str]
+    environment: dict[str, Any]
+    warnings: list[InvestigationWarning]
+    limitations: list[str]

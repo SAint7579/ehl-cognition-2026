@@ -34,6 +34,7 @@ def test_committed_schemas_match_export(tmp_path: Path) -> None:
         "structure_summary",
         "residue_annotations",
         "candidate_sites",
+        "final_result",
     ):
         schema_path = ROOT / "schemas" / f"{name}.schema.json"
         fresh_path = fresh / f"{name}.schema.json"

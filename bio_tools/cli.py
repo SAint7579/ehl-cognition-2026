@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .candidates import analyze_candidates
 from .conservation import analyze_alignment
 from .homology import run_homolog_search
+from .investigate import run_investigation
 from .msa import run_msa
 from .pipeline import run_pipeline
 from .provenance import write_json_model
@@ -63,6 +64,21 @@ def _parser() -> argparse.ArgumentParser:
     candidates.add_argument("--exclude", default="160,206,237")
     candidates.add_argument("--top", type=int, default=15)
     candidates.add_argument("--out", required=True, type=Path)
+
+    investigate = subparsers.add_parser("investigate", help="run the protein-engineering playbook")
+    investigate.add_argument("--objective", required=True)
+    investigate.add_argument("--target", required=True, type=Path)
+    investigate.add_argument("--database", required=True, type=Path)
+    investigate.add_argument("--structure", required=True, type=Path)
+    investigate.add_argument("--chain", required=True)
+    investigate.add_argument("--references", required=True, type=Path)
+    investigate.add_argument("--out", required=True, type=Path)
+    investigate.add_argument("--constraint", action="append", default=[])
+    investigate.add_argument("--threads", type=int)
+    investigate.add_argument("--top", type=int, default=10)
+    investigate.add_argument("--catalytic-residue", type=int, default=160)
+    investigate.add_argument("--catalytic-atom", default="OG")
+    investigate.add_argument("--exclude", default="160,206,237")
     return parser
 
 
@@ -103,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             _write(args.out / "structure_summary.json", summary)
             _write(args.out / "residue_annotations.json", annotations)
             print(f"structure complete: {summary.modelled_residue_count} modelled residues")
-        else:
+        elif args.command == "candidates":
             exclude = _parse_exclude(args.exclude)
             artifact = analyze_candidates(
                 args.annotations,
@@ -122,6 +138,31 @@ def main(argv: list[str] | None = None) -> int:
                 f"{artifact.shortlists['activity'].n_sites} activity, "
                 f"{artifact.shortlists['stability'].n_sites} stability sites"
             )
+        else:
+            exclude = _parse_exclude(args.exclude)
+            artifact, success = run_investigation(
+                args.objective,
+                args.target,
+                args.database,
+                args.structure,
+                args.chain,
+                args.references,
+                args.out,
+                args.constraint,
+                args.threads,
+                args.top,
+                args.catalytic_residue,
+                args.catalytic_atom,
+                exclude,
+            )
+            _write(args.out / "final_result.json", artifact)
+            if not success:
+                error = next(
+                    stage.error for stage in artifact.stages if stage.status == "FAILED"
+                )
+                print(f"bioctl: {error}", file=sys.stderr)
+                return 1
+            print("investigation complete")
     except (OSError, ValueError, RuntimeError) as error:
         print(f"bioctl: {error}", file=sys.stderr)
         return 1
