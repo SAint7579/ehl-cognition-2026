@@ -141,3 +141,117 @@ class RunArtifact(StrictModel):
     stages: list[StageArtifact]
     environment: dict[str, Any]
     limitations: list[str]
+
+
+class StructureWarning(StrictModel):
+    code: str
+    message: str
+    severity: Literal["INFO", "WARNING", "ERROR"]
+
+
+class StructureDeposition(StrictModel):
+    pdb_id: str
+    chain: str
+    title: str | None
+    experimental_method: str | None
+    resolution_angstrom: float | None
+    evidence_type: Literal["KNOWN"]
+
+
+class SecondaryStructureComposition(StrictModel):
+    counts_8state: dict[str, int]
+    fractions_8state: dict[str, float]
+    counts_3state: dict[str, int]
+    fractions_3state: dict[str, float]
+    simplification: str
+
+
+class FoldseekHit(StrictModel):
+    query: str
+    target: str
+    fident: float = Field(description="Foldseek fractional identity on a 0-1 scale.")
+    alignment_length: int
+    qstart: int
+    qend: int
+    tstart: int
+    tend: int
+    evalue: float
+    bits: float
+    alignment_tm_score: float
+    query_tm_score: float
+    target_tm_score: float
+    lddt: float
+    probability: float
+    query_coverage: float
+    target_coverage: float
+    significant: bool
+
+
+class NumberingException(StrictModel):
+    structure_index: int
+    author_residue: int
+    insertion_code: str | None
+    target_position: int | None
+    reason: str
+
+
+class NumberingSummary(StrictModel):
+    author_numbering_matches_target: bool
+    exceptions: list[NumberingException]
+
+
+class ReverseIndexEntry(StrictModel):
+    msa_column: int | None
+    target_position: int | None
+    structure_index: int
+    author_residue: int
+    insertion_code: str | None
+
+
+class ResidueAnnotation(StrictModel):
+    structure_index: int
+    author_residue: int
+    insertion_code: str | None
+    resname: str
+    one_letter: str
+    target_position: int | None
+    target_residue: str | None
+    msa_column: int | None
+    conservation: float | None
+    gap_fraction: float | None
+    entropy: float | None
+    dssp_8state: str | None
+    secondary_structure: str | None
+    acc: float | None
+    rsa: float | None
+    altloc_present: bool
+    evidence_type: Literal["CALCULATED"]
+
+
+class ResidueAnnotationsArtifact(StrictModel):
+    schema_version: str = SCHEMA_VERSION
+    structure_id: str
+    chain: str
+    annotations: list[ResidueAnnotation]
+    warnings: list[StructureWarning]
+    limitations: list[str]
+
+
+class StructureSummaryArtifact(StrictModel):
+    schema_version: str = SCHEMA_VERSION
+    structure_id: str
+    chain: str
+    deposition: StructureDeposition
+    target_id: str
+    target_length: int
+    residue_counts: dict[str, int]
+    modelled_residue_count: int
+    modelled_range: str
+    unmodelled_target_ranges: list[str]
+    secondary_structure: SecondaryStructureComposition
+    foldseek_hits: list[FoldseekHit]
+    numbering: NumberingSummary
+    reverse_index: list[ReverseIndexEntry]
+    warnings: list[StructureWarning]
+    provenance: list[ProvenanceRecord]
+    limitations: list[str]
