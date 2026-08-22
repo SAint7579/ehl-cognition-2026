@@ -60,7 +60,7 @@ def test_structure_cli_fixture_mapping_and_artifacts(tmp_path: Path) -> None:
     rsa_above_one = {
         item["author_residue"]
         for item in annotations["annotations"]
-        if item["rsa"] > 1
+        if item["rsa"] is not None and item["rsa"] > 1
     }
     assert rsa_above_one == {29, 293}
     assert all(item["rsa"] is None or item["rsa"] < 2 for item in annotations["annotations"])
