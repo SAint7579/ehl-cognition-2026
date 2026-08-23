@@ -114,3 +114,88 @@ export type FinalResult = {
     stability?: { sites?: CandidateSite[] };
   };
 };
+
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type ResearchTask = {
+  id: string;
+  title: string;
+  purpose: string;
+  capability: string;
+  status: "PLANNED" | "RUNNING" | "COMPLETED" | "FAILED" | "BLOCKED" | "SKIPPED";
+  methods: string[];
+  output_files: string[];
+};
+
+export type ResearchPlan = {
+  objective: string;
+  strategy: string;
+  tasks: ResearchTask[];
+  assumptions: string[];
+  required_inputs: string[];
+};
+
+export type SynthesisFinding = {
+  title: string;
+  statement: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "NOT_ASSESSED";
+  evidence_files: string[];
+  implications: string[];
+};
+
+export type ResearchSynthesis = {
+  objective: string;
+  summary: string;
+  findings: SynthesisFinding[];
+  agreements: string[];
+  disagreements: string[];
+  knowledge_gaps: string[];
+  recommended_next_steps: string[];
+  limitations: string[];
+};
+
+export type SimulationMetric = {
+  name: string;
+  value: string | number | boolean | null;
+  unit: string | null;
+  interpretation: string;
+};
+
+export type SimulationRun = {
+  id: string;
+  question: string;
+  method: string;
+  engine: string;
+  status: "COMPLETED" | "FAILED" | "BLOCKED" | "SKIPPED";
+  input_files: string[];
+  parameters: Record<string, string | number | boolean | null>;
+  metrics: SimulationMetric[];
+  output_files: string[];
+  interpretation: string;
+  limitations: string[];
+};
+
+export type SimulationResults = {
+  objective: string;
+  runs: SimulationRun[];
+  summary: string;
+  recommended_next_steps: string[];
+};
+
+export type ResearchWorkspace = {
+  plan: ResearchPlan | null;
+  synthesis: ResearchSynthesis | null;
+  simulations: SimulationResults | null;
+  validation_errors: Record<string, string>;
+};
+
+export type StructuredArtifact = {
+  artifact: ArtifactInfo;
+  value: JsonValue;
+};

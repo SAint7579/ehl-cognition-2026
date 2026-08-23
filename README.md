@@ -65,6 +65,10 @@ are present. There is no local `bioctl` fallback for jobs; missing
 `GET /api/jobs/{id}` and `/artifacts/{filename}` feed the UI once Devin
 attaches `conservation.json`, structure files, and `final_result.json`.
 
+For hosting, deploy the frontend on Vercel and keep FastAPI on persistent
+compute. [DEPLOYMENT.md](DEPLOYMENT.md) covers the beta and production
+architecture, environment variables, constraints, and smoke tests.
+
 Local `bioctl` smoke tests still use `./scripts/bootstrap_tools.sh` for CLI
 development only. That path is not the product.
 

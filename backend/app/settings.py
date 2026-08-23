@@ -5,34 +5,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-
-class Settings(BaseModel):
-    root: Path = Path(__file__).resolve().parents[2]
-    runs_dir: Path = Path(__file__).resolve().parents[2] / "runs" / "jobs"
-    cors_origins: tuple[str, ...] = (
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    )
-    default_target: Path = Path(__file__).resolve().parents[2] / "fixtures" / "target_ispetase.fasta"
-    default_database: Path = Path(__file__).resolve().parents[2] / "fixtures" / "homolog_db.fasta"
-    default_structure: Path = (
-        Path(__file__).resolve().parents[2] / "fixtures" / "structures" / "6EQE.pdb.gz"
-    )
-    default_references: Path = Path(__file__).resolve().parents[2] / "fixtures" / "structures"
-    default_chain: str = "A"
-    threads: int = 2
-    poll_interval_seconds: float = 0.5
-    poll_timeout_seconds: float = 1800.0
-
-
-settings = Settings()
-settings.runs_dir.mkdir(parents=True, exist_ok=True)
-
-REQUIRED_DEVIN = ("DEVIN_API_KEY", "DEVIN_ORG_ID")
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_dotenv(path: Path | None = None) -> None:
-    file = path or settings.root / ".env"
+    file = path or ROOT / ".env"
     if not file.is_file():
         return
     for raw in file.read_text(encoding="utf-8").splitlines():
@@ -46,11 +23,45 @@ def load_dotenv(path: Path | None = None) -> None:
             os.environ[key] = value
 
 
+def env_value(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def env_path(name: str, default: Path) -> Path:
+    value = env_value(name)
+    return Path(value).expanduser() if value else default
+
+
+def env_origins() -> tuple[str, ...]:
+    raw = env_value("CORS_ORIGINS")
+    if not raw:
+        return ("http://localhost:5173", "http://127.0.0.1:5173")
+    return tuple(origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip())
+
+
 load_dotenv()
 
 
-def env_value(name: str) -> str:
-    return os.environ.get(name, "").strip()
+class Settings(BaseModel):
+    root: Path = ROOT
+    runs_dir: Path = env_path("RUNS_DIR", ROOT / "runs" / "jobs")
+    cors_origins: tuple[str, ...] = env_origins()
+    default_target: Path = ROOT / "fixtures" / "target_ispetase.fasta"
+    default_database: Path = ROOT / "fixtures" / "homolog_db.fasta"
+    default_structure: Path = (
+        ROOT / "fixtures" / "structures" / "6EQE.pdb.gz"
+    )
+    default_references: Path = ROOT / "fixtures" / "structures"
+    default_chain: str = "A"
+    threads: int = 2
+    poll_interval_seconds: float = 0.5
+    poll_timeout_seconds: float = 1800.0
+
+
+settings = Settings()
+settings.runs_dir.mkdir(parents=True, exist_ok=True)
+
+REQUIRED_DEVIN = ("DEVIN_API_KEY", "DEVIN_ORG_ID")
 
 
 def missing_devin_settings() -> list[str]:

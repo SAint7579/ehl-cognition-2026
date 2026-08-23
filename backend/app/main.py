@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import threading
+from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import FastAPI, HTTPException
@@ -31,7 +32,15 @@ from backend.app.research import (
 from backend.app.settings import missing_devin_settings, settings, snapshot_configured
 from backend.app.store import new_message, store
 
-app = FastAPI(title="ehl-cognition", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        _spawn(resume_running_jobs)
+    yield
+
+
+app = FastAPI(title="ehl-cognition", version="0.1.0", lifespan=lifespan)
 JOB_PUBLIC = {"seen_devin_ids"}
 app.add_middleware(
     CORSMiddleware,
@@ -171,14 +180,6 @@ async def stream_events(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-@app.on_event("startup")
-def _resume_sandbox_jobs() -> None:
-    if os.environ.get("PYTEST_CURRENT_TEST"):
-        return
-    _spawn(resume_running_jobs)
-
 
 def _spawn(fn: Callable[..., None], *args: object) -> None:
     if os.environ.get("PYTEST_CURRENT_TEST"):
