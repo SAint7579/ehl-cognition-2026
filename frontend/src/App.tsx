@@ -109,7 +109,15 @@ export function App() {
     restored.current = null;
     if (authEnabled && !session) return;
     getHealth().then(setHealth).catch(() => undefined);
-    listProtocols().then(setProtocols).catch(() => setProtocols([]));
+    listProtocols()
+      .then((items) => {
+        setProtocols(items);
+        setSelectedProtocolId(items.find((protocol) => protocol.is_default)?.id ?? "");
+      })
+      .catch(() => {
+        setProtocols([]);
+        setSelectedProtocolId("");
+      });
     listJobs()
       .then((items) => {
         const ordered = [...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -335,7 +343,7 @@ export function App() {
     composing.current = true;
     setJob(null);
     setObjective("");
-    setSelectedProtocolId("");
+    setSelectedProtocolId(protocols.find((protocol) => protocol.is_default)?.id ?? "");
     setError(null);
     setStarting(false);
     clearEvidence();
@@ -391,10 +399,15 @@ export function App() {
                   value={selectedProtocolId}
                   onChange={(event) => setSelectedProtocolId(event.target.value)}
                 >
-                  <option value="">Use the default protocol</option>
+                  {!protocols.some((protocol) => protocol.is_default) ? (
+                    <option value="">Use the default protocol</option>
+                  ) : null}
                   {protocols.map((protocol) => (
                     <option key={protocol.id} value={protocol.id}>
                       {protocol.title}
+                      {protocol.is_default && !/\(default\)$/i.test(protocol.title)
+                        ? " (default)"
+                        : ""}
                     </option>
                   ))}
                 </select>

@@ -89,7 +89,7 @@ The current registered playbooks are:
 
 | Title | Playbook ID |
 | --- | --- |
-| Lab investigation v1 | `playbook-e4359843548647fc86aa4dd1df56c7c1` |
+| End-to-end laboratory investigation (default) | `playbook-e4359843548647fc86aa4dd1df56c7c1` |
 | Protein engineering v2 | `playbook-f1af869f559247df8f57063be907c7e6` |
 | Compound docking v1 | `playbook-5eaa27f62d444e2eaaadfd4e86c3be63` |
 
@@ -101,10 +101,19 @@ remain backend-only; never expose `DEVIN_API_KEY`, `DEVIN_ORG_ID`, or other
 Devin secrets through Vite or browser code.
 
 Set `DEVIN_PLAYBOOK_ID` on the backend to choose the default playbook when a
-scientist does not make a selection. If the organization has no discoverable
-playbooks, the Protocol picker is hidden and the backend falls back to the
-local markdown protocol behavior for investigations without a selected
-playbook.
+scientist does not make a selection. Point it at the registered
+**End-to-end laboratory investigation (default)** playbook to run plan,
+retrieval, sequence/conservation, structure, docking/simulation, evidence
+classification, synthesis, and escalation as one staged request. The Protocol
+picker preselects that configured default and lets a scientist override it per
+investigation. **Protein engineering v2** and **Compound docking v1** are
+optional specialized deep-dive alternatives, not required for the default
+workflow.
+
+If no default is configured, or playbook discovery returns no playbooks, the
+Protocol picker is hidden and the backend preserves the local markdown
+fallback. Devin credentials remain backend-only; never expose them through
+Vite or browser code.
 
 ## Supabase setup
 

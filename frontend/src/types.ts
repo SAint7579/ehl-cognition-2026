@@ -64,6 +64,7 @@ export type Protocol = {
   id: string;
   title: string;
   has_structured_output_schema: boolean;
+  is_default: boolean;
 };
 
 export type Health = {

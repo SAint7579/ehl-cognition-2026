@@ -47,6 +47,7 @@ class ProtocolInfo(BaseModel):
     id: str
     title: str
     has_structured_output_schema: bool = False
+    is_default: bool = False
 
 
 class MessageCreate(BaseModel):

@@ -305,8 +305,10 @@ def _discover_playbooks() -> list[dict[str, object]]:
 
 
 def _protocol_info(item: dict[str, object]) -> ProtocolInfo:
+    default_id = env_value("DEVIN_PLAYBOOK_ID")
     return ProtocolInfo(
         id=str(item["playbook_id"]),
         title=str(item["title"]),
         has_structured_output_schema=isinstance(item.get("structured_output_schema"), dict),
+        is_default=str(item["playbook_id"]) == default_id if default_id else False,
     )
