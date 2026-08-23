@@ -86,6 +86,7 @@ class ArtifactInfo(BaseModel):
 
 class Job(BaseModel):
     id: str
+    owner_id: str | None = None
     title: str
     objective: str
     playbook: str = "protein-engineering-v1"

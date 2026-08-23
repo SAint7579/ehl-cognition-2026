@@ -9,14 +9,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from backend.app.artifacts import is_allowed_artifact, job_dir, list_artifacts
+from backend.app.artifacts import is_allowed_artifact, job_dir, list_artifacts, media_type
 from backend.app.capabilities import artifact_descriptor
 from backend.app.chatfilter import clean_body, is_internal
 from backend.app.devin import DevinClient, DevinError, SessionClient, normalize_session_ref
-from backend.app.models import JobStatus, Speaker
+from backend.app.models import ArtifactInfo, JobStatus, Speaker
 from backend.app.prompt import follow_up_prompt, investigation_prompt
 from backend.app.settings import settings
 from backend.app.store import new_event, new_message, store
+from backend.app.supabase import supabase
 
 SleepFn = Callable[[float], None]
 NowFn = Callable[[], float]
@@ -410,25 +411,32 @@ def _await_session(
     *,
     wait_for_new_work: bool,
 ) -> str:
-    deadline = now() + settings.poll_timeout_seconds
+    started_at = now()
+    deadline = started_at + settings.poll_timeout_seconds
+    idle_deadline = started_at + settings.poll_idle_timeout_seconds
     known_bytes: dict[str, int] = {}
-    last_stage = ""
+    last_status_detail: tuple[str, str] | None = None
     last_harvest = 0.0
     saw_work = False
     new_reply = False
-    while now() < deadline:
+    while now() < deadline and now() < idle_deadline:
         session = client.get_session(session_id)
         status, detail = _status_fields(session)
-        stage = detail or status
-        if stage and stage != last_stage:
+        status_detail = (status, detail)
+        if status_detail != last_status_detail:
             _set_stage(job_id, status, detail)
-            last_stage = stage
+            last_status_detail = status_detail
+            idle_deadline = now() + settings.poll_idle_timeout_seconds
         if _is_working(status, detail):
             saw_work = True
-        if _ingest_messages(job_id, client, session_id):
+            idle_deadline = now() + settings.poll_idle_timeout_seconds
+        ingested = _ingest_messages(job_id, client, session_id)
+        if ingested:
             new_reply = True
+            idle_deadline = now() + settings.poll_idle_timeout_seconds
         closing = _turn_complete(status, detail)
         if closing or now() - last_harvest >= HARVEST_EVERY:
+            previous_bytes = dict(known_bytes)
             known_bytes = _harvest(
                 job_id,
                 client,
@@ -439,6 +447,8 @@ def _await_session(
                 scan_messages=closing,
             )
             last_harvest = now()
+            if known_bytes != previous_bytes:
+                idle_deadline = now() + settings.poll_idle_timeout_seconds
         if _is_failed(status, detail):
             raise DevinError(session.get("error") or session.get("message") or detail or status)
         if detail == NEEDS_CONFIRM:
@@ -456,8 +466,38 @@ def _await_session(
                 pass
             return "done"
         sleep(settings.poll_interval_seconds)
+    recovered_reply = False
+    recovered_artifacts = False
+    try:
+        before_bytes = dict(known_bytes)
+        recovered_messages = _ingest_messages(job_id, client, session_id)
+        new_reply = new_reply or bool(recovered_messages)
+        session = client.get_session(session_id)
+        known_bytes = _harvest(
+            job_id,
+            client,
+            session_id,
+            session,
+            known_bytes,
+            force=True,
+            scan_messages=True,
+        )
+        recovered_artifacts = known_bytes != before_bytes
+        recovered_reply = bool(recovered_messages)
+    except Exception:
+        pass
+    if recovered_artifacts or recovered_reply:
+        limitation = (
+            "A Devin wait limit was reached after recovering the latest results; "
+            "Devin may still be working in the session. Re-check the session for additional outputs."
+        )
+        job = store.get(job_id)
+        if job is not None and limitation not in job.limitations:
+            store.update(job_id, limitations=[*job.limitations, limitation])
+        return "done"
     raise DevinError(
-        f"Timed out after {int(settings.poll_timeout_seconds)}s waiting for the Devin sandbox."
+        "A Devin wait limit was reached, but the session is still live and no new results "
+        "were recovered. Re-check the Devin session to fetch results later."
     )
 
 
@@ -699,6 +739,22 @@ def _write_artifact(
         return known_bytes
     path.write_bytes(data)
     known_bytes[basename] = len(data)
+    descriptor = artifact_descriptor(basename)
+    job = store.get(job_id)
+    if job is not None:
+        supabase.persist_artifact(
+            job,
+            ArtifactInfo(
+                id=f"art_{Path(basename).stem}",
+                filename=basename,
+                media_type=media_type(basename),
+                bytes=len(data),
+                stage=descriptor.stage,
+                title=descriptor.title,
+                purpose=descriptor.purpose,
+            ),
+            path,
+        )
     store.add_event(
         job_id,
         new_event(

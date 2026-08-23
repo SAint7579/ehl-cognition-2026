@@ -27,6 +27,16 @@ def env_value(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
+def env_float(name: str, default: float) -> float:
+    value = env_value(name)
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def env_path(name: str, default: Path) -> Path:
     value = env_value(name)
     return Path(value).expanduser() if value else default
@@ -55,7 +65,13 @@ class Settings(BaseModel):
     default_chain: str = "A"
     threads: int = 2
     poll_interval_seconds: float = 0.5
-    poll_timeout_seconds: float = 1800.0
+    poll_timeout_seconds: float = env_float("DEVIN_POLL_TIMEOUT_SECONDS", 86400.0)
+    poll_idle_timeout_seconds: float = env_float("DEVIN_IDLE_TIMEOUT_SECONDS", 5400.0)
+    supabase_url: str = env_value("SUPABASE_URL").rstrip("/")
+    supabase_service_role_key: str = env_value("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_artifact_bucket: str = (
+        env_value("SUPABASE_ARTIFACT_BUCKET") or "research-artifacts"
+    )
 
 
 settings = Settings()
@@ -70,6 +86,10 @@ def missing_devin_settings() -> list[str]:
 
 def snapshot_configured() -> bool:
     return bool(env_value("DEVIN_SNAPSHOT_ID"))
+
+
+def supabase_configured() -> bool:
+    return bool(settings.supabase_url and settings.supabase_service_role_key)
 
 
 def configured_repos() -> list[str]:

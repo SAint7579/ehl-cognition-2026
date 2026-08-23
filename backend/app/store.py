@@ -8,6 +8,7 @@ from uuid import uuid4
 from backend.app.capabilities import resolve_capabilities
 from backend.app.models import Event, Job, JobStatus, Message, ResearchCapability, Speaker
 from backend.app.settings import settings
+from backend.app.supabase import supabase
 
 
 class JobStore:
@@ -17,25 +18,25 @@ class JobStore:
         self.load()
 
     def load(self) -> None:
-        if not settings.runs_dir.is_dir():
-            return
         loaded: dict[str, Job] = {}
-        for path in settings.runs_dir.glob("*/job.json"):
-            try:
-                job = Job.model_validate_json(path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            if not job.capabilities:
-                job = job.model_copy(
-                    update={
-                        "capabilities": resolve_capabilities(
-                            job.objective,
-                            [],
-                            job.include_structure,
-                        )
-                    }
-                )
-            loaded[job.id] = job
+        if settings.runs_dir.is_dir():
+            for path in settings.runs_dir.glob("*/job.json"):
+                try:
+                    job = Job.model_validate_json(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not job.capabilities:
+                    job = job.model_copy(
+                        update={
+                            "capabilities": resolve_capabilities(
+                                job.objective,
+                                [],
+                                job.include_structure,
+                            )
+                        }
+                    )
+                loaded[job.id] = job
+        loaded.update({job.id: job for job in supabase.load_jobs()})
         with self._lock:
             self._jobs.update(loaded)
         self._restore_last_session()
@@ -46,10 +47,12 @@ class JobStore:
         title: str | None,
         include_structure: bool,
         capabilities: list[ResearchCapability] | None = None,
+        owner_id: str | None = None,
     ) -> Job:
         now = datetime.now(timezone.utc)
         job = Job(
             id=uuid4().hex[:12],
+            owner_id=owner_id,
             title=title or _title_from(objective),
             objective=objective,
             status=JobStatus.queued,
@@ -72,9 +75,13 @@ class JobStore:
             job = self._jobs.get(job_id)
             return job.model_copy(deep=True) if job else None
 
-    def list(self) -> list[Job]:
+    def list(self, owner_id: str | None = None) -> list[Job]:
         with self._lock:
-            return [job.model_copy(deep=True) for job in self._jobs.values()]
+            return [
+                job.model_copy(deep=True)
+                for job in self._jobs.values()
+                if owner_id is None or job.owner_id == owner_id
+            ]
 
     def update(self, job_id: str, **fields: object) -> Job:
         with self._lock:
@@ -144,9 +151,10 @@ class JobStore:
                 ),
                 encoding="utf-8",
             )
+        supabase.persist_job(job)
 
     def _restore_last_session(self) -> None:
-        if self._jobs:
+        if self._jobs or supabase.enabled:
             return
         pointer = settings.runs_dir / "last_session.json"
         if not pointer.is_file():

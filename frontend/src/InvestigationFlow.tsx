@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { artifactUrl } from "./api";
+import { ArtifactLink } from "./Artifact";
 import { visibleMessages } from "./chat";
 import { Markdown } from "./Markdown";
 import type { ArtifactInfo, Job, JobEvent, Message } from "./types";
@@ -167,14 +167,9 @@ function StepDetail({ jobId, step }: { jobId: string; step: FlowStep }) {
             <span>Outputs</span>
             <div>
               {step.artifacts.map((artifact) => (
-                <a
-                  href={artifactUrl(jobId, artifact.filename)}
-                  target="_blank"
-                  rel="noreferrer"
-                  key={artifact.id}
-                >
+                <ArtifactLink jobId={jobId} filename={artifact.filename} key={artifact.id}>
                   {artifact.filename}
-                </a>
+                </ArtifactLink>
               ))}
             </div>
           </div>

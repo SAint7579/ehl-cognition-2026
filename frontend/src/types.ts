@@ -190,8 +190,11 @@ export type SimulationResults = {
 
 export type ResearchWorkspace = {
   plan: ResearchPlan | null;
+  plan_filename: string | null;
   synthesis: ResearchSynthesis | null;
+  synthesis_filename: string | null;
   simulations: SimulationResults | null;
+  simulations_filename: string | null;
   validation_errors: Record<string, string>;
 };
 

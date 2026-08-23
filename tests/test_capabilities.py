@@ -250,6 +250,52 @@ def test_research_workspace_normalizes_real_devin_plan_shapes(tmp_path: Path) ->
     ]
 
 
+def test_research_workspace_discovers_and_normalizes_synthesis_variants(
+    tmp_path: Path,
+) -> None:
+    _reset(tmp_path)
+    job = store.create(
+        "Compare deposited evidence with calculated docking results.",
+        None,
+        True,
+        [ResearchCapability.research_synthesis],
+    )
+    directory = tmp_path / job.id
+    (directory / "final_synthesis_summary.json").write_text(
+        json.dumps(
+            {
+                "final_summary": "The deposited and calculated evidence agree on the active site.",
+                "findings": [
+                    {
+                        "finding": "The catalytic triad is strongly supported.",
+                        "confidence": "high",
+                        "sources": ["literature_sources.csv", "structure.pdb"],
+                    },
+                    "Docking suggests a compatible pose but does not establish affinity.",
+                ],
+                "gaps": ["Flexible receptor motion was not modeled."],
+                "next_steps": ["Test the top contact residue experimentally."],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    workspace = TestClient(app).get(f"/api/jobs/{job.id}/research").json()
+
+    assert workspace["validation_errors"] == {}
+    assert workspace["synthesis_filename"] == "final_synthesis_summary.json"
+    assert workspace["synthesis"]["objective"] == job.objective
+    assert workspace["synthesis"]["summary"].startswith("The deposited")
+    assert workspace["synthesis"]["findings"][0]["confidence"] == "HIGH"
+    assert workspace["synthesis"]["findings"][1]["confidence"] == "NOT_ASSESSED"
+    assert workspace["synthesis"]["knowledge_gaps"] == [
+        "Flexible receptor motion was not modeled."
+    ]
+    assert workspace["synthesis"]["recommended_next_steps"] == [
+        "Test the top contact residue experimentally."
+    ]
+
+
 def test_artifacts_include_scientist_facing_metadata(tmp_path: Path) -> None:
     _reset(tmp_path)
     job = store.create("Analyze a dataset and synthesize it.", None, False)

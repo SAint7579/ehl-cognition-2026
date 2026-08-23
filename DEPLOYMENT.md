@@ -56,6 +56,8 @@ current control-room process needs persistent compute and storage.
 | Variable | Example | Purpose |
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | `https://api.research.example.com` | Public FastAPI origin, without a trailing slash |
+| `VITE_SUPABASE_URL` | `https://project.supabase.co` | Public Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | `eyJ...` | Public Supabase anon/publishable key |
 
 ### FastAPI backend
 
@@ -67,10 +69,37 @@ current control-room process needs persistent compute and storage.
 | `RUNS_DIR` | yes for hosted beta | Mounted persistent job directory |
 | `CORS_ORIGINS` | yes | Comma-separated allowed frontend origins |
 | `DEVIN_BASE_URL` | no | Override only when using a different Devin API endpoint |
+| `SUPABASE_URL` | yes when persistence/auth is enabled | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes when persistence/auth is enabled | Backend-only Supabase service role credential |
+| `SUPABASE_ARTIFACT_BUCKET` | no | Private Storage bucket name; defaults to `research-artifacts` |
+| `DEVIN_POLL_TIMEOUT_SECONDS` | no | Absolute Devin wait cap; defaults to 86400 seconds (24 hours) |
+| `DEVIN_IDLE_TIMEOUT_SECONDS` | no | Idle wait cap; defaults to 5400 seconds (90 minutes) |
 
 Store these values in the hosting providers' encrypted environment-variable
-settings. Do not put them in frontend variables, source control, or generated
+settings. `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are intentionally
+public and are safe to embed in the browser. The Supabase service role key is
+backend-only: never put it in frontend variables, source control, or generated
 artifacts.
+
+## Supabase setup
+
+1. Create a Supabase project and enable email/password authentication.
+2. Apply `supabase/migrations/20260823010000_research_workspace.sql` with the
+   Supabase SQL editor or the Supabase CLI:
+
+   ```sh
+   supabase db push
+   ```
+
+3. Create a **private** Storage bucket named `research-artifacts` (or set
+   `SUPABASE_ARTIFACT_BUCKET` to another private bucket).
+4. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
+   `SUPABASE_ARTIFACT_BUCKET` on the backend only.
+5. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` on the frontend.
+
+The backend validates bearer tokens through Supabase Auth and scopes every
+investigation to its owner. Artifact bytes are downloaded server-side from the
+private bucket. Do not use the service role key in the browser.
 
 ## Vercel frontend setup
 
@@ -94,6 +123,12 @@ The host must support:
 - A persistent mounted directory.
 - SSE responses without proxy buffering.
 - A health check on `GET /api/health`.
+- A request and connection timeout long enough for the configured Devin poller.
+
+The default poll limits allow a turn to run for up to 24 hours, while requiring
+some observed progress within each 90-minute idle window. Use a persistent host
+without short request or idle timeouts. Vercel serverless functions cannot host
+the poller; Vercel remains suitable for the frontend only.
 
 Run:
 

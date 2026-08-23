@@ -9,6 +9,7 @@ import type {
   ResearchWorkspace,
   StructureSummary,
 } from "./types";
+import { getSession } from "./auth";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
@@ -16,8 +17,17 @@ function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
+async function requestHeaders(headers: HeadersInit = {}): Promise<Headers> {
+  const result = new Headers(headers);
+  const session = await getSession();
+  if (session?.access_token) result.set("Authorization", `Bearer ${session.access_token}`);
+  return result;
+}
+
 export function getHealth(): Promise<Health> {
-  return fetch(apiUrl("/api/health")).then((r) => parse<Health>(r));
+  return requestHeaders().then((headers) =>
+    fetch(apiUrl("/api/health"), { headers }),
+  ).then((r) => parse<Health>(r));
 }
 
 async function parse<T>(response: Response): Promise<T> {
@@ -29,72 +39,109 @@ async function parse<T>(response: Response): Promise<T> {
 }
 
 export function listJobs(): Promise<Job[]> {
-  return fetch(apiUrl("/api/jobs")).then((r) => parse<Job[]>(r));
+  return requestHeaders().then((headers) =>
+    fetch(apiUrl("/api/jobs"), { headers }),
+  ).then((r) => parse<Job[]>(r));
 }
 
-export function createJob(objective: string): Promise<Job> {
-  return fetch(apiUrl("/api/jobs"), {
+export async function createJob(objective: string): Promise<Job> {
+  const headers = await requestHeaders({ "Content-Type": "application/json" });
+  return parse<Job>(await fetch(apiUrl("/api/jobs"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ objective, include_structure: true }),
-  }).then((r) => parse<Job>(r));
+  }));
 }
 
-export function harvestJob(id: string): Promise<Job> {
-  return fetch(apiUrl(`/api/jobs/${id}/harvest`), { method: "POST" }).then((r) => parse<Job>(r));
+export async function harvestJob(id: string): Promise<Job> {
+  const headers = await requestHeaders();
+  return parse<Job>(await fetch(apiUrl(`/api/jobs/${id}/harvest`), { method: "POST", headers }));
 }
 
-export function getJob(id: string): Promise<Job> {
-  return fetch(apiUrl(`/api/jobs/${id}`)).then((r) => parse<Job>(r));
+export async function getJob(id: string): Promise<Job> {
+  const headers = await requestHeaders();
+  return parse<Job>(await fetch(apiUrl(`/api/jobs/${id}`), { headers }));
 }
 
-export function getResearchWorkspace(id: string): Promise<ResearchWorkspace> {
-  return fetch(apiUrl(`/api/jobs/${id}/research`)).then((r) => parse<ResearchWorkspace>(r));
+export async function getResearchWorkspace(id: string): Promise<ResearchWorkspace> {
+  const headers = await requestHeaders();
+  return parse<ResearchWorkspace>(await fetch(apiUrl(`/api/jobs/${id}/research`), { headers }));
 }
 
 export function watchJob(id: string, onJob: (job: Job) => void): () => void {
-  const source = new EventSource(apiUrl(`/api/jobs/${id}/events`));
+  const controller = new AbortController();
   let closed = false;
   let fallback: number | undefined;
   const apply = (job: Job) => {
     onJob(job);
     if (job.status === "complete" || job.status === "failed") {
       closed = true;
-      source.close();
+      controller.abort();
       if (fallback !== undefined) window.clearInterval(fallback);
     }
   };
-  source.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(event.data) as { job?: Job };
-      if (payload.job) apply(payload.job);
-    } catch {
-      return;
-    }
-  };
-  source.onerror = () => {
+  const startFallback = () => {
     if (closed || fallback !== undefined) return;
     fallback = window.setInterval(() => {
       getJob(id).then(apply).catch(() => undefined);
     }, 1000);
   };
+  void (async () => {
+    try {
+      const headers = await requestHeaders({ Accept: "text/event-stream" });
+      const response = await fetch(apiUrl(`/api/jobs/${id}/events`), {
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) throw new Error("SSE stream unavailable");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!closed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const data = frame
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (!data) continue;
+          try {
+            const payload = JSON.parse(data) as { job?: Job };
+            if (payload.job) apply(payload.job);
+          } catch {
+            continue;
+          }
+        }
+      }
+      if (!closed) startFallback();
+    } catch {
+      if (!closed) startFallback();
+    }
+  })();
   return () => {
     closed = true;
-    source.close();
+    controller.abort();
     if (fallback !== undefined) window.clearInterval(fallback);
   };
 }
 
-export function sendMessage(id: string, body: string): Promise<Job> {
-  return fetch(apiUrl(`/api/jobs/${id}/messages`), {
+export async function sendMessage(id: string, body: string): Promise<Job> {
+  const headers = await requestHeaders({ "Content-Type": "application/json" });
+  return parse<Job>(await fetch(apiUrl(`/api/jobs/${id}/messages`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ body }),
-  }).then((r) => parse<Job>(r));
+  }));
 }
 
-export function loadJson<T>(jobId: string, filename: string): Promise<T | null> {
-  return fetch(apiUrl(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`)).then((response) => {
+export async function loadJson<T>(jobId: string, filename: string): Promise<T | null> {
+  const headers = await requestHeaders();
+  return fetch(apiUrl(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`), { headers }).then((response) => {
     if (response.status === 404) return null;
     return parse<T>(response);
   });
@@ -132,7 +179,7 @@ export function loadFinalResult(jobId: string): Promise<FinalResult | null> {
 }
 
 export function loadStructurePdb(jobId: string, filename = "structure.pdb"): Promise<string | null> {
-  return fetch(artifactUrl(jobId, filename)).then((response) => {
+  return loadArtifactResponse(jobId, filename).then((response) => {
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(response.statusText);
     return response.text();
@@ -144,9 +191,21 @@ export function artifactUrl(jobId: string, filename: string): string {
 }
 
 export function loadText(jobId: string, filename: string): Promise<string | null> {
-  return fetch(artifactUrl(jobId, filename)).then((response) => {
+  return loadArtifactResponse(jobId, filename).then((response) => {
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(response.statusText);
     return response.text();
   });
+}
+
+async function loadArtifactResponse(jobId: string, filename: string): Promise<Response> {
+  const headers = await requestHeaders();
+  return fetch(artifactUrl(jobId, filename), { headers });
+}
+
+export async function loadArtifactBlob(jobId: string, filename: string): Promise<Blob | null> {
+  const response = await loadArtifactResponse(jobId, filename);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(response.statusText);
+  return response.blob();
 }
