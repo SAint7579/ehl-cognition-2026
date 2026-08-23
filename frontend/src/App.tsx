@@ -500,6 +500,8 @@ export function App() {
             working={working}
             research={research}
             columns={columns}
+            pdbText={pdbText}
+            triad={triad}
             result={result}
             selected={selectedEvidenceTask}
             onSelect={setSelectedEvidenceTask}
