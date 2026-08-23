@@ -7,9 +7,10 @@ import threading
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator, Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.app.artifacts import artifact_path, list_artifacts, media_type
 from backend.app.chatfilter import visible_messages
@@ -29,8 +30,14 @@ from backend.app.research import (
     catalog_response,
     load_workspace,
 )
-from backend.app.settings import missing_devin_settings, settings, snapshot_configured
+from backend.app.settings import (
+    missing_devin_settings,
+    settings,
+    snapshot_configured,
+    supabase_configured,
+)
 from backend.app.store import new_message, store
+from backend.app.supabase import supabase
 
 
 @asynccontextmanager
@@ -41,13 +48,34 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ehl-cognition", version="0.1.0", lifespan=lifespan)
-JOB_PUBLIC = {"seen_devin_ids"}
+auth_scheme = HTTPBearer(auto_error=False)
+JOB_PUBLIC = {"owner_id", "seen_devin_ids"}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def authenticated_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+) -> str | None:
+    if not supabase_configured():
+        return None
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(401, "authentication required")
+    user_id = supabase.verify_user(credentials.credentials)
+    if user_id is None:
+        raise HTTPException(401, "invalid or expired access token")
+    return user_id
+
+
+def owned_job(job_id: str, user_id: str | None) -> Job:
+    job = store.get(job_id)
+    if job is None or (user_id is not None and job.owner_id != user_id):
+        raise HTTPException(404, "job not found")
+    return job
 
 
 @app.get("/api/health")
@@ -59,12 +87,17 @@ def health() -> dict[str, object]:
         "configured": not missing,
         "missing": missing,
         "snapshot_configured": snapshot_configured(),
+        "supabase_configured": supabase_configured(),
     }
 
 
 @app.get("/api/jobs", response_model=list[Job], response_model_exclude=JOB_PUBLIC)
-def list_jobs() -> list[Job]:
-    return sorted((_public_job(job) for job in store.list()), key=lambda job: job.created_at, reverse=True)
+def list_jobs(user_id: str | None = Depends(authenticated_user)) -> list[Job]:
+    return sorted(
+        (_public_job(job) for job in store.list(user_id)),
+        key=lambda job: job.created_at,
+        reverse=True,
+    )
 
 
 @app.get("/api/capabilities", response_model=list[CapabilityInfo])
@@ -73,12 +106,16 @@ def list_capabilities() -> list[CapabilityInfo]:
 
 
 @app.post("/api/jobs", response_model=Job, response_model_exclude=JOB_PUBLIC)
-def create_job(body: JobCreate) -> Job:
+def create_job(
+    body: JobCreate,
+    user_id: str | None = Depends(authenticated_user),
+) -> Job:
     job = store.create(
         body.objective,
         body.title,
         body.include_structure,
         body.capabilities,
+        user_id,
     )
     if body.devin_session_id:
         session_id, session_url = normalize_session_ref(body.devin_session_id)
@@ -88,10 +125,11 @@ def create_job(body: JobCreate) -> Job:
 
 
 @app.get("/api/jobs/{job_id}", response_model=Job, response_model_exclude=JOB_PUBLIC)
-def get_job(job_id: str) -> Job:
-    job = store.get(job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
+def get_job(
+    job_id: str,
+    user_id: str | None = Depends(authenticated_user),
+) -> Job:
+    job = owned_job(job_id, user_id)
     if job.devin_session_id and not os.environ.get("PYTEST_CURRENT_TEST"):
         sync_job(job_id)
         job = store.get(job_id) or job
@@ -99,18 +137,21 @@ def get_job(job_id: str) -> Job:
 
 
 @app.get("/api/jobs/{job_id}/research", response_model=ResearchWorkspace)
-def get_research_workspace(job_id: str) -> ResearchWorkspace:
-    job = store.get(job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
-    return load_workspace(job_id, job.capabilities)
+def get_research_workspace(
+    job_id: str,
+    user_id: str | None = Depends(authenticated_user),
+) -> ResearchWorkspace:
+    job = owned_job(job_id, user_id)
+    return load_workspace(job_id, job.capabilities, job.objective)
 
 
 @app.post("/api/jobs/{job_id}/messages", response_model=Job, response_model_exclude=JOB_PUBLIC)
-def post_message(job_id: str, body: MessageCreate) -> Job:
-    job = store.get(job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
+def post_message(
+    job_id: str,
+    body: MessageCreate,
+    user_id: str | None = Depends(authenticated_user),
+) -> Job:
+    job = owned_job(job_id, user_id)
     if not job.devin_session_id:
         raise HTTPException(409, "no Devin sandbox session for this job")
     if job_is_busy(job):
@@ -122,10 +163,11 @@ def post_message(job_id: str, body: MessageCreate) -> Job:
 
 
 @app.post("/api/jobs/{job_id}/harvest", response_model=Job, response_model_exclude=JOB_PUBLIC)
-def harvest_job(job_id: str) -> Job:
-    job = store.get(job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
+def harvest_job(
+    job_id: str,
+    user_id: str | None = Depends(authenticated_user),
+) -> Job:
+    job = owned_job(job_id, user_id)
     if not job.devin_session_id:
         raise HTTPException(409, "no Devin sandbox session for this job")
     if job.status == JobStatus.running:
@@ -136,23 +178,32 @@ def harvest_job(job_id: str) -> Job:
 
 
 @app.get("/api/jobs/{job_id}/artifacts/{filename}")
-def get_artifact(job_id: str, filename: str) -> FileResponse:
-    if store.get(job_id) is None:
-        raise HTTPException(404, "job not found")
+def get_artifact(
+    job_id: str,
+    filename: str,
+    user_id: str | None = Depends(authenticated_user),
+) -> FileResponse:
+    owned_job(job_id, user_id)
     if filename == "structure.pdb":
         from backend.app.artifacts import ensure_structure_pdb
 
         ensure_structure_pdb(job_id)
     path = artifact_path(job_id, filename)
     if path is None:
+        destination = settings.runs_dir / job_id / filename
+        if supabase.download_artifact(job_id, filename, destination):
+            path = artifact_path(job_id, filename)
+    if path is None:
         raise HTTPException(404, "artifact not found")
     return FileResponse(path, filename=filename, media_type=media_type(filename))
 
 
 @app.get("/api/jobs/{job_id}/events")
-async def stream_events(job_id: str) -> StreamingResponse:
-    if store.get(job_id) is None:
-        raise HTTPException(404, "job not found")
+async def stream_events(
+    job_id: str,
+    user_id: str | None = Depends(authenticated_user),
+) -> StreamingResponse:
+    owned_job(job_id, user_id)
 
     async def generate() -> AsyncIterator[str]:
         last = ""
@@ -189,9 +240,12 @@ def _spawn(fn: Callable[..., None], *args: object) -> None:
 
 
 def _public_job(job: Job) -> Job:
+    local_artifacts = list_artifacts(job.id)
+    artifacts = {item.filename: item for item in job.artifacts}
+    artifacts.update({item.filename: item for item in local_artifacts})
     return job.model_copy(
         update={
             "messages": visible_messages(job.messages),
-            "artifacts": list_artifacts(job.id),
+            "artifacts": list(artifacts.values()),
         }
     )

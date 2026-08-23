@@ -24,6 +24,15 @@ import type { EvidenceTaskId } from "./evidence";
 import { InvestigationFlow } from "./InvestigationFlow";
 import type { InvestigationSelection } from "./InvestigationFlow";
 import { Sidebar } from "./Sidebar";
+import {
+  authEnabled,
+  getSession,
+  onAuthStateChange,
+  signIn,
+  signOut,
+  signUp,
+} from "./auth";
+import type { Session } from "@supabase/supabase-js";
 import type {
   ConservationColumn,
   FinalResult,
@@ -65,10 +74,36 @@ export function App() {
   const [selectedEvidenceTask, setSelectedEvidenceTask] = useState<EvidenceTaskId>("overview");
   const [starting, setStarting] = useState(false);
   const [clock, setClock] = useState(Date.now());
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(!authEnabled);
+  const [authError, setAuthError] = useState<string | null>(null);
   const restored = useRef<string | null>(null);
   const composing = useRef(false);
 
   useEffect(() => {
+    if (!authEnabled) return;
+    let active = true;
+    getSession().then((current) => {
+      if (active) {
+        setSession(current);
+        setAuthReady(true);
+      }
+    }).catch(() => {
+      if (active) setAuthReady(true);
+    });
+    return onAuthStateChange((current) => {
+      setSession(current);
+      setAuthError(null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
+    clearEvidence();
+    setJob(null);
+    setJobs([]);
+    restored.current = null;
+    if (authEnabled && !session) return;
     getHealth().then(setHealth).catch(() => undefined);
     listJobs()
       .then((items) => {
@@ -77,7 +112,7 @@ export function App() {
         if (ordered[0] && !composing.current) setJob(ordered[0]);
       })
       .catch(() => undefined);
-  }, []);
+  }, [authReady, session?.user.id]);
 
   useEffect(() => {
     if (!job) return;
@@ -159,7 +194,13 @@ export function App() {
     if (has("final_result.json")) {
       loadFinalResult(job.id).then((value) => !cancelled && setResult(value)).catch(() => undefined);
     }
-    if (["research_plan.json", "synthesis.json", "simulation_results.json"].some(has)) {
+    if (
+      job.artifacts.some(
+        (artifact) =>
+          /\.json$/i.test(artifact.filename) &&
+          ["plan", "synthesis", "simulation"].includes(artifact.stage),
+      )
+    ) {
       getResearchWorkspace(job.id)
         .then((value) => !cancelled && setResearch(value))
         .catch(() => undefined);
@@ -273,6 +314,18 @@ export function App() {
     }
   }
 
+  async function onRecheck() {
+    if (!job?.devin_session_id) return;
+    setError(null);
+    try {
+      const updated = await harvestJob(job.id);
+      setJob(updated);
+      setJobs((current) => upsert(current, updated));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not re-check the Devin session.");
+    }
+  }
+
   function onNew() {
     composing.current = true;
     setJob(null);
@@ -284,6 +337,10 @@ export function App() {
   }
 
   if (!job) {
+    if (authEnabled && !authReady) return null;
+    if (authEnabled && !session) {
+      return <LoginScreen error={authError} onError={setAuthError} />;
+    }
     return (
       <div className="shell compose">
         <Sidebar
@@ -294,6 +351,8 @@ export function App() {
             setJob(item);
           }}
           onNew={onNew}
+          email={session?.user.email}
+          onSignOut={authEnabled ? () => void signOut() : undefined}
         />
         <main className="start-page">
           <div className="start-glow" />
@@ -353,7 +412,14 @@ export function App() {
 
   return (
     <div className="shell">
-      <Sidebar jobs={jobs} activeId={job.id} onSelect={setJob} onNew={onNew} />
+      <Sidebar
+        jobs={jobs}
+        activeId={job.id}
+        onSelect={setJob}
+        onNew={onNew}
+        email={session?.user.email}
+        onSignOut={authEnabled ? () => void signOut() : undefined}
+      />
       <section className="chat">
         <header className="chat-top">
           <div className="chat-title">
@@ -374,6 +440,12 @@ export function App() {
               Open Devin session
               <span aria-hidden="true">↗</span>
             </a>
+          ) : null}
+          {job.status === "failed" && job.devin_session_id ? (
+            <button type="button" className="session-link" onClick={() => void onRecheck()}>
+              Re-check Devin session
+              <span aria-hidden="true">↻</span>
+            </button>
           ) : null}
         </header>
         {error ? <div className="inline-error">{error}</div> : null}
@@ -435,6 +507,82 @@ export function App() {
         working={working}
       />
     </div>
+  );
+}
+
+function LoginScreen({
+  error,
+  onError,
+}: {
+  error: string | null;
+  onError: (message: string | null) => void;
+}) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setNotice(null);
+    onError(null);
+    try {
+      const result = mode === "sign-in"
+        ? await signIn(email.trim(), password)
+        : await signUp(email.trim(), password);
+      if (result.error) throw result.error;
+      if (mode === "sign-up" && !result.data.session) {
+        setNotice("Check your email to confirm your account, then sign in.");
+      }
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Authentication failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="start-page auth-page">
+      <div className="start-glow" />
+      <form className="start auth-form" onSubmit={submit}>
+        <div className="start-label">
+          <span className="sandbox-dot" />
+          Devin scientific sandbox
+        </div>
+        <h1>{mode === "sign-in" ? "Sign in to your research control room." : "Create your scientist account."}</h1>
+        <p className="lede">
+          Keep investigations private to your account while Devin handles the compute and evidence.
+        </p>
+        <label className="objective-field">
+          <span>Email</span>
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+        </label>
+        <label className="objective-field">
+          <span>Password</span>
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} minLength={6} required />
+        </label>
+        <button className="start-button" type="submit" disabled={busy}>
+          {busy ? "Working…" : mode === "sign-in" ? "Sign in" : "Sign up"}
+          <span aria-hidden="true">→</span>
+        </button>
+        {error ? <p className="warn">{error}</p> : null}
+        {notice ? <p className="auth-notice">{notice}</p> : null}
+        <button
+          className="auth-toggle"
+          type="button"
+          onClick={() => {
+            setMode(mode === "sign-in" ? "sign-up" : "sign-in");
+            onError(null);
+            setNotice(null);
+          }}
+        >
+          {mode === "sign-in" ? "Need an account? Sign up" : "Already registered? Sign in"}
+        </button>
+      </form>
+    </main>
   );
 }
 

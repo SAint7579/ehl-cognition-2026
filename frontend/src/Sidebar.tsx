@@ -5,11 +5,15 @@ export function Sidebar({
   activeId,
   onSelect,
   onNew,
+  email,
+  onSignOut,
 }: {
   jobs: Job[];
   activeId: string | null;
   onSelect: (job: Job) => void;
   onNew: () => void;
+  email?: string;
+  onSignOut?: () => void;
 }) {
   return (
     <aside className="sidebar">
@@ -57,6 +61,12 @@ export function Sidebar({
       <footer className="sidebar-footer">
         <span className="sandbox-dot" />
         Devin Cloud sandbox
+        {onSignOut ? (
+          <div className="account-lockup">
+            <span title={email}>{email}</span>
+            <button type="button" onClick={onSignOut}>Sign out</button>
+          </div>
+        ) : null}
       </footer>
     </aside>
   );

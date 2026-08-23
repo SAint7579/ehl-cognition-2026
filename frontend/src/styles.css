@@ -245,6 +245,7 @@ textarea:focus-visible {
 }
 
 .sidebar-footer {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -252,6 +253,44 @@ textarea:focus-visible {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.46);
   font-size: 10px;
+}
+
+.account-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-lockup > span {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-lockup button,
+.auth-toggle {
+  padding: 0;
+  border: 0;
+  color: var(--accent-strong);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.account-lockup button {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.account-lockup button:hover,
+.auth-toggle:hover {
+  text-decoration: underline;
 }
 
 .sandbox-dot {
@@ -371,6 +410,41 @@ textarea:focus-visible {
 
 .objective-field textarea::placeholder {
   color: #9ca7a3;
+}
+
+.objective-field input {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  color: var(--ink);
+  background: #fbfcfb;
+}
+
+.objective-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(8, 122, 104, 0.08);
+  outline: 0;
+}
+
+.auth-page {
+  grid-column: 1 / -1;
+}
+
+.auth-form {
+  width: min(580px, 100%);
+}
+
+.auth-notice {
+  margin: 12px 0 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+
+.auth-toggle {
+  display: block;
+  margin: 16px auto 0;
 }
 
 .example-prompts {
@@ -1172,6 +1246,59 @@ textarea:focus-visible {
 
 .task-navigation button.selected span {
   background: #fff;
+}
+
+.final-result-view {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #abd2c5;
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(39, 147, 123, 0.12), transparent 34%),
+    #f4faf7;
+}
+
+.final-result-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.final-result-heading h3 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+
+.final-result-heading p:not(.eyebrow) {
+  max-width: 560px;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.final-result-heading button {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid #9bc5b8;
+  border-radius: 7px;
+  color: var(--accent-strong);
+  background: #fff;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.final-result-view > .card {
+  margin: 0;
+  border-color: #cfe3dc;
+  box-shadow: 0 8px 26px rgba(12, 74, 61, 0.06);
+}
+
+.final-result-fallback .structured-content {
+  max-height: 600px;
+  border-top: 0;
 }
 
 .task-overview-heading {

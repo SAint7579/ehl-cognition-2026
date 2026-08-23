@@ -1,4 +1,4 @@
-import { artifactUrl } from "./api";
+import { ArtifactImage, ArtifactLink } from "./Artifact";
 import {
   EVIDENCE_TASKS,
   outputPresentation,
@@ -96,7 +96,14 @@ export function EvidenceWorkspace({
         {job.error && !working ? <div className="card warn-card">{friendlyError(job.error)}</div> : null}
         <TaskNavigation tasks={tasks} selected={selected} onSelect={onSelect} />
         {selected === "overview" || !task ? (
-          <TaskOverview tasks={tasks} onSelect={onSelect} working={working} />
+          <TaskOverview
+            job={job}
+            tasks={tasks}
+            research={research}
+            structuredArtifacts={structuredArtifacts}
+            onSelect={onSelect}
+            working={working}
+          />
         ) : (
           <TaskEvidence
             job={job}
@@ -186,17 +193,44 @@ function TaskNavigation({
 }
 
 function TaskOverview({
+  job,
   tasks,
+  research,
+  structuredArtifacts,
   onSelect,
   working,
 }: {
+  job: Job;
   tasks: EvidenceTask[];
+  research: ResearchWorkspace | null;
+  structuredArtifacts: StructuredArtifact[];
   onSelect: (task: EvidenceTaskId) => void;
   working: boolean;
 }) {
   const savedOutputs = tasks.reduce((count, task) => count + task.artifacts.length, 0);
+  const fallback = finalResultArtifact(structuredArtifacts);
   return (
     <section className="task-overview" aria-label="Investigation task outputs">
+      {research?.synthesis ? (
+        <section className="final-result-view" aria-label="Final scientific result">
+          <div className="final-result-heading">
+            <div>
+              <p className="eyebrow">Final result</p>
+              <h3>What this investigation found</h3>
+            </div>
+            <button type="button" onClick={() => onSelect("synthesis")}>
+              Open synthesis task →
+            </button>
+          </div>
+          <SynthesisCard
+            jobId={job.id}
+            synthesis={research.synthesis}
+            heading="Scientific conclusion"
+          />
+        </section>
+      ) : fallback ? (
+        <FinalResultFallback artifact={fallback} onOpen={() => onSelect("synthesis")} />
+      ) : null}
       <div className="task-overview-heading">
         <div>
           <p className="eyebrow">Investigation map</p>
@@ -306,7 +340,7 @@ function TaskEvidence({
       <StructuredDataCards
         artifacts={taskStructured}
         task={task}
-        exclude={specializedJson(task.id)}
+        exclude={specializedJson(task.id, research)}
       />
       {!task.artifacts.length ? (
         <div className="card task-empty">
@@ -343,9 +377,9 @@ function OutputManifest({ jobId, task }: { jobId: string; task: EvidenceTask }) 
                   {artifact.filename} · {formatBytes(artifact.bytes)}
                 </small>
               </div>
-              <a href={artifactUrl(jobId, artifact.filename)} target="_blank" rel="noreferrer">
+              <ArtifactLink jobId={jobId} filename={artifact.filename}>
                 Open
-              </a>
+              </ArtifactLink>
             </li>
           );
         })}
@@ -374,7 +408,7 @@ function FigureCard({
             <h3>{presentation.title}</h3>
             <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
             <figure>
-              <img src={artifactUrl(jobId, item.filename)} alt={presentation.title} />
+              <ArtifactImage jobId={jobId} filename={item.filename} alt={presentation.title} />
               <figcaption>{item.filename}</figcaption>
             </figure>
           </div>
@@ -462,9 +496,11 @@ function ResearchPlanCard({ plan }: { plan: ResearchPlan }) {
 function SynthesisCard({
   jobId,
   synthesis,
+  heading = "Evidence convergence and confidence",
 }: {
   jobId: string;
   synthesis: ResearchSynthesis;
+  heading?: string;
 }) {
   const counts = ["HIGH", "MEDIUM", "LOW", "NOT_ASSESSED"].map((confidence) => ({
     confidence,
@@ -474,7 +510,7 @@ function SynthesisCard({
   return (
     <div className="card synthesis-card">
       <p className="card-kicker">Scientific synthesis</p>
-      <h3>Evidence convergence and confidence</h3>
+      <h3>{heading}</h3>
       <p className="synthesis-summary">{synthesis.summary}</p>
       {synthesis.findings.length ? (
         <>
@@ -511,9 +547,9 @@ function SynthesisCard({
                 {finding.evidence_files.length ? (
                   <div className="evidence-file-list">
                     {finding.evidence_files.map((filename) => (
-                      <a href={artifactUrl(jobId, filename)} target="_blank" rel="noreferrer" key={filename}>
+                      <ArtifactLink jobId={jobId} filename={filename} key={filename}>
                         {filename}
-                      </a>
+                      </ArtifactLink>
                     ))}
                   </div>
                 ) : null}
@@ -530,6 +566,34 @@ function SynthesisCard({
       </div>
       <TextList title="Limitations" items={synthesis.limitations} tone="muted" />
     </div>
+  );
+}
+
+function FinalResultFallback({
+  artifact,
+  onOpen,
+}: {
+  artifact: StructuredArtifact;
+  onOpen: () => void;
+}) {
+  return (
+    <section className="final-result-view" aria-label="Final structured result">
+      <div className="final-result-heading">
+        <div>
+          <p className="eyebrow">Final result</p>
+          <h3>{artifact.artifact.title}</h3>
+          <p>{artifact.artifact.purpose}</p>
+        </div>
+        <button type="button" onClick={onOpen}>
+          Open synthesis task →
+        </button>
+      </div>
+      <div className="card structured-card final-result-fallback">
+        <div className="structured-content">
+          <JsonValueView value={artifact.value} />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -890,13 +954,32 @@ function figures(artifacts: ArtifactInfo[]): ArtifactInfo[] {
   return artifacts.filter((item) => /\.(png|jpe?g|webp|gif|svg)$/i.test(item.filename));
 }
 
-function specializedJson(task: EvidenceTaskId): Set<string> {
-  const names: Partial<Record<EvidenceTaskId, string[]>> = {
-    plan: ["research_plan.json"],
-    synthesis: ["synthesis.json"],
-    simulation: ["simulation_results.json"],
+function specializedJson(
+  task: EvidenceTaskId,
+  research: ResearchWorkspace | null,
+): Set<string> {
+  const names: Partial<Record<EvidenceTaskId, string | null>> = {
+    plan: research?.plan ? research.plan_filename : null,
+    synthesis: research?.synthesis ? research.synthesis_filename : null,
+    simulation: research?.simulations ? research.simulations_filename : null,
   };
-  return new Set(names[task] ?? []);
+  const filename = names[task];
+  return new Set(filename ? [filename] : []);
+}
+
+function finalResultArtifact(artifacts: StructuredArtifact[]): StructuredArtifact | null {
+  const candidates = artifacts.filter((item) => item.artifact.stage === "synthesis");
+  const rank = (filename: string) => {
+    const name = filename.toLowerCase();
+    if (name === "synthesis.json") return 0;
+    if (name.includes("synthesis")) return 1;
+    if (name.includes("summary") || name.includes("conclusion")) return 2;
+    if (name === "final_result.json") return 3;
+    return 4;
+  };
+  return candidates.sort(
+    (left, right) => rank(left.artifact.filename) - rank(right.artifact.filename),
+  )[0] ?? null;
 }
 
 function labelKey(value: string): string {
