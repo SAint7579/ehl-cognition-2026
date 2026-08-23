@@ -300,6 +300,27 @@
   stroke-width: 2.5;
 }
 
+.investigation-graph-structure-trace {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 5px;
+}
+
+.investigation-graph-structure-trace polyline {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.investigation-graph-structure-trace circle {
+  fill: var(--warn);
+  stroke: var(--panel);
+  stroke-width: 1;
+}
+
 .investigation-graph-methods {
   display: flex;
   flex-wrap: wrap;

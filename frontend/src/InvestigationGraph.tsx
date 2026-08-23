@@ -16,6 +16,7 @@ import type {
   Job,
   ResearchTask,
   ResearchWorkspace,
+  ResidueAnnotation,
 } from "./types";
 import "./investigation-graph.css";
 
@@ -87,6 +88,8 @@ export function InvestigationGraph({
   working,
   research,
   columns,
+  pdbText,
+  triad,
   result,
   selected,
   onSelect,
@@ -95,6 +98,8 @@ export function InvestigationGraph({
   working: boolean;
   research: ResearchWorkspace | null;
   columns: ConservationColumn[];
+  pdbText: string | null;
+  triad: ResidueAnnotation[];
   result: FinalResult | null;
   selected: EvidenceTaskId;
   onSelect: (task: EvidenceTaskId) => void;
@@ -417,6 +422,8 @@ export function InvestigationGraph({
                       node={node}
                       columns={columns}
                       research={research}
+                      pdbText={pdbText}
+                      triad={triad}
                       result={result}
                     />
                   </span>
@@ -585,6 +592,8 @@ function NodeBody({
   node,
   columns,
   research,
+  pdbText,
+  triad,
   result,
 }: {
   jobId: string;
@@ -592,6 +601,8 @@ function NodeBody({
   columns: ConservationColumn[];
   research: ResearchWorkspace | null;
   result: FinalResult | null;
+  pdbText: string | null;
+  triad: ResidueAnnotation[];
 }) {
   const image = node.artifacts.find((artifact) => /\.(png|jpe?g|webp|svg)$/i.test(artifact.filename));
   const [imageFailed, setImageFailed] = useState(false);
@@ -611,6 +622,17 @@ function NodeBody({
         />
       </span>
     );
+  }
+
+  if (node.id === "structure") {
+    const trace = parseBackboneTrace(pdbText, triad);
+    if (trace) {
+      return (
+        <span className="investigation-graph-thumb">
+          <StructureTrace trace={trace} />
+        </span>
+      );
+    }
   }
 
   const values = sparklineValues(node, columns, research, result);
@@ -633,6 +655,84 @@ function NodeBody({
     );
   }
   return "No output recorded yet";
+}
+
+type BackbonePoint = {
+  x: number;
+  y: number;
+  residue: number;
+};
+
+type BackboneTrace = {
+  points: BackbonePoint[];
+  marks: BackbonePoint[];
+};
+
+const MAX_TRACE_POINTS = 80;
+
+function parseBackboneTrace(pdbText: string | null, triad: ResidueAnnotation[]): BackboneTrace | null {
+  if (!pdbText) return null;
+  const points: BackbonePoint[] = [];
+  const seenResidues = new Set<string>();
+  let chain: string | null = null;
+  for (const line of pdbText.split(/\r?\n/)) {
+    const record = line.slice(0, 6).trim();
+    if (record !== "ATOM" && record !== "HETATM") continue;
+    if (line.slice(12, 16).trim() !== "CA") continue;
+    const pointChain = line.slice(21, 22);
+    if (chain === null) chain = pointChain;
+    if (pointChain !== chain) continue;
+    const residue = Number.parseInt(line.slice(22, 26).trim(), 10);
+    const x = Number.parseFloat(line.slice(30, 38).trim());
+    const y = Number.parseFloat(line.slice(38, 46).trim());
+    if (!Number.isFinite(residue) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const residueKey = `${pointChain}:${residue}`;
+    if (seenResidues.has(residueKey)) continue;
+    seenResidues.add(residueKey);
+    points.push({ x, y, residue });
+  }
+  if (points.length < 2) return null;
+
+  const sampled = downsamplePoints(points, MAX_TRACE_POINTS);
+  const minX = Math.min(...sampled.map((point) => point.x));
+  const maxX = Math.max(...sampled.map((point) => point.x));
+  const minY = Math.min(...sampled.map((point) => point.y));
+  const maxY = Math.max(...sampled.map((point) => point.y));
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const normalise = (point: BackbonePoint): BackbonePoint => ({
+    x: 8 + ((point.x - minX) / spanX) * 184,
+    y: 8 + ((maxY - point.y) / spanY) * 32,
+    residue: point.residue,
+  });
+  const normalised = sampled.map(normalise);
+  const triadResidues = new Set(triad.map((row) => row.author_residue));
+  const marks = normalised.filter((point) => triadResidues.has(point.residue));
+  return { points: normalised, marks };
+}
+
+function downsamplePoints(points: BackbonePoint[], limit: number): BackbonePoint[] {
+  if (points.length <= limit) return points;
+  return Array.from({ length: limit }, (_, index) => {
+    const sourceIndex = Math.round((index * (points.length - 1)) / (limit - 1));
+    return points[sourceIndex];
+  });
+}
+
+function StructureTrace({ trace }: { trace: BackboneTrace }) {
+  const points = trace.points.map((point) => `${point.x},${point.y}`).join(" ");
+  return (
+    <svg
+      className="investigation-graph-structure-trace"
+      viewBox="0 0 200 48"
+      aria-hidden="true"
+    >
+      <polyline points={points} />
+      {trace.marks.map((point) => (
+        <circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="2.5" />
+      ))}
+    </svg>
+  );
 }
 
 function sparklineValues(
