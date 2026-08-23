@@ -6,6 +6,7 @@ type Viewer = {
   addStyle: (sel: object, style: object) => void;
   zoomTo: (sel?: object) => void;
   render: () => void;
+  spin: (axis: string | boolean, speed?: number, onlyWhenVisible?: boolean) => void;
   clear: () => void;
 };
 
@@ -76,6 +77,9 @@ export function StructureViewer({
     const element = host.current;
     if (!element || !pdbText) return;
     let cancelled = false;
+    const stopAutoRotate = () => viewerRef.current?.spin(false);
+    element.addEventListener("pointerdown", stopAutoRotate, { capture: true });
+    element.addEventListener("wheel", stopAutoRotate, { capture: true });
 
     void import("3dmol/build/3Dmol.es6.js").then((mod) => {
       if (cancelled || !host.current) return;
@@ -91,11 +95,17 @@ export function StructureViewer({
       frame(viewer, marks.current.focus, marks.current.triad);
       viewer.render();
       viewerRef.current = viewer;
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        viewer.spin("y", 0.25, true);
+      }
     });
 
     return () => {
       cancelled = true;
+      element.removeEventListener("pointerdown", stopAutoRotate, { capture: true });
+      element.removeEventListener("wheel", stopAutoRotate, { capture: true });
       const viewer = viewerRef.current;
+      viewer?.spin(false);
       viewer?.divwatcher?.disconnect();
       viewer?.intwatcher?.disconnect();
       viewer?.clear();
