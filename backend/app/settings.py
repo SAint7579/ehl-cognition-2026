@@ -70,6 +70,7 @@ class Settings(BaseModel):
     supabase_health_cache_seconds: float = env_float(
         "SUPABASE_HEALTH_CACHE_SECONDS", 5.0
     )
+    supabase_refresh_seconds: float = env_float("SUPABASE_REFRESH_SECONDS", 30.0)
     supabase_url: str = env_value("SUPABASE_URL").rstrip("/")
     supabase_service_role_key: str = env_value("SUPABASE_SERVICE_ROLE_KEY")
     supabase_artifact_bucket: str = (
