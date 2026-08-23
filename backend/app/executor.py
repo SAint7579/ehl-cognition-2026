@@ -763,14 +763,12 @@ def _selected_playbook(client: SessionClient, playbook_id: str) -> dict[str, Any
         if str(playbook.get("playbook_id") or "") == playbook_id:
             body = playbook.get("body")
             if not isinstance(body, str) or not body.strip():
-                fetch = getattr(client, "get_playbook", None)
-                if callable(fetch):
-                    try:
-                        fetched = fetch(playbook_id)
-                    except Exception:
-                        fetched = None
-                    if isinstance(fetched, dict):
-                        return {**playbook, **fetched}
+                try:
+                    fetched = client.get_playbook(playbook_id)
+                except Exception:
+                    fetched = None
+                if isinstance(fetched, dict):
+                    return {**playbook, **fetched}
             return playbook
     return None
 

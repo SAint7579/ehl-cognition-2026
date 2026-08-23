@@ -21,6 +21,8 @@ class FakeDevin:
         self.prompts: list[str] = []
         self.messages: list[dict[str, Any]] = []
         self.playbooks: list[dict[str, Any]] = []
+        self.fetched_playbooks: dict[str, dict[str, Any]] = {}
+        self.fetch_failures: set[str] = set()
         self.structured_output: dict[str, Any] | None = None
         self.selected_playbook_id: str | None = None
         self.attachments: dict[str, bytes] = {
@@ -66,6 +68,11 @@ class FakeDevin:
 
     def list_playbooks(self) -> list[dict[str, Any]]:
         return list(self.playbooks)
+
+    def get_playbook(self, playbook_id: str) -> dict[str, Any]:
+        if playbook_id in self.fetch_failures:
+            raise RuntimeError("playbook fetch failed")
+        return dict(self.fetched_playbooks.get(playbook_id, {}))
 
     def send_message(self, session_id: str, message: str) -> None:
         self.sent.append(message)
@@ -208,20 +215,36 @@ def test_empty_protocol_body_skips_snapshot_and_records_error(
     fake = _install(monkeypatch, tmp_path)
     fake.playbooks = [
         {
-            "playbook_id": "pb-empty",
-            "title": "Empty protocol",
+            "playbook_id": "pb-fetched",
+            "title": "Fetched protocol",
             "body": "  \n",
-        }
+        },
+        {
+            "playbook_id": "pb-missing",
+            "title": "Missing protocol",
+            "body": "  \n",
+        },
     ]
+    fake.fetched_playbooks["pb-fetched"] = {"body": "Fetched protocol body"}
+    fake.fetch_failures.add("pb-missing")
     main._protocol_cache = None
-    response = TestClient(app).post(
+    client = TestClient(app)
+    fetched = client.post(
         "/api/jobs",
-        json={"objective": "Investigate enzyme stability.", "playbook_id": "pb-empty"},
+        json={"objective": "Investigate enzyme stability.", "playbook_id": "pb-fetched"},
     )
-    assert response.status_code == 200
-    job = response.json()
-    assert not (tmp_path / job["id"] / "protocol.md").exists()
-    workspace = TestClient(app).get(f"/api/jobs/{job['id']}/research")
+    assert fetched.status_code == 200
+    fetched_job = fetched.json()
+    assert (tmp_path / fetched_job["id"] / "protocol.md").read_text() == "Fetched protocol body"
+
+    missing = client.post(
+        "/api/jobs",
+        json={"objective": "Investigate enzyme stability.", "playbook_id": "pb-missing"},
+    )
+    assert missing.status_code == 200
+    missing_job = missing.json()
+    assert not (tmp_path / missing_job["id"] / "protocol.md").exists()
+    workspace = client.get(f"/api/jobs/{missing_job['id']}/research")
     assert "protocol.md" in workspace.json()["validation_errors"]
 
 
