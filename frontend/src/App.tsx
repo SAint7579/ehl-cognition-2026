@@ -343,7 +343,7 @@ export function App() {
     composing.current = true;
     setJob(null);
     setObjective("");
-    setSelectedProtocolId("");
+    setSelectedProtocolId(protocols.find((protocol) => protocol.is_default)?.id ?? "");
     setError(null);
     setStarting(false);
     clearEvidence();
@@ -392,13 +392,16 @@ export function App() {
                 autoFocus
               />
             </label>
-            {protocols.some((protocol) => protocol.is_default) ? (
+            {protocols.length ? (
               <label className="objective-field">
                 <span>Protocol</span>
                 <select
                   value={selectedProtocolId}
                   onChange={(event) => setSelectedProtocolId(event.target.value)}
                 >
+                  {!protocols.some((protocol) => protocol.is_default) ? (
+                    <option value="">Use the default protocol</option>
+                  ) : null}
                   {protocols.map((protocol) => (
                     <option key={protocol.id} value={protocol.id}>
                       {protocol.title}
