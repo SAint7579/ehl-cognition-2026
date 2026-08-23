@@ -70,6 +70,34 @@ class FakeResponse:
         return self._payload
 
 
+class FailedResponse:
+    status_code = 400
+    text = '{"code":"PGRST204","message":"column investigations.playbook_id does not exist"}'
+
+    def raise_for_status(self) -> None:
+        request = httpx.Request("POST", "https://example.supabase.co/rest/v1/investigations")
+        raise httpx.HTTPStatusError("Client error", request=request, response=self)
+
+
+def test_supabase_persist_records_postgrest_error_detail(
+    monkeypatch: pytest.MonkeyPatch, isolated_store: None
+) -> None:
+    job = store.create("persist objective", None, True, owner_id="user-a")
+    monkeypatch.setattr(settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "service-role")
+    monkeypatch.setattr(httpx, "request", lambda *args, **kwargs: FailedResponse())
+    repository = SupabaseRepository()
+
+    repository.persist_job(job)
+
+    failure = repository.last_failure
+    assert failure is not None
+    assert failure["operation"] == "investigations upsert"
+    assert "PGRST204" in failure["message"]
+    assert "playbook_id" in failure["message"]
+    assert failure["timestamp"]
+
+
 def test_mocked_supabase_rest_storage_hydration_and_download(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

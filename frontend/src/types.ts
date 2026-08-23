@@ -73,6 +73,13 @@ export type Health = {
   configured: boolean;
   missing: string[];
   snapshot_configured: boolean;
+  supabase_configured: boolean;
+  supabase_healthy?: boolean;
+  supabase_last_failure?: {
+    operation: string;
+    message: string;
+    timestamp: string;
+  } | null;
 };
 
 export type HomologHit = {

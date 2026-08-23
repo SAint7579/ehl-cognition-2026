@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -14,33 +17,107 @@ from backend.app.settings import settings, supabase_configured
 logger = logging.getLogger(__name__)
 
 
+class SupabaseRequestError(httpx.HTTPError):
+    pass
+
+
+@dataclass(frozen=True)
+class SupabaseFailure:
+    operation: str
+    message: str
+    timestamp: datetime
+
+
 class SupabaseRepository:
     def __init__(self) -> None:
         self.timeout = 15.0
+        self._last_failure: SupabaseFailure | None = None
+        self._health_cache: tuple[float, datetime, bool] | None = None
 
     @property
     def enabled(self) -> bool:
         return supabase_configured()
+
+    @property
+    def last_failure(self) -> dict[str, str] | None:
+        failure = self._last_failure
+        if failure is None:
+            return None
+        return {
+            "operation": failure.operation,
+            "message": failure.message,
+            "timestamp": failure.timestamp.isoformat(),
+        }
+
+    def persistence_health(self) -> dict[str, object] | None:
+        if not self.enabled:
+            self._health_cache = None
+            return None
+        now = time.monotonic()
+        cached = self._health_cache
+        if cached is None or cached[0] <= now:
+            checked_at = datetime.now(timezone.utc)
+            try:
+                self._select(
+                    "investigations",
+                    {
+                        "select": (
+                            "id,owner_id,title,objective,playbook,playbook_id,"
+                            "playbook_title,status,active_agent,active_stage,error,"
+                            "include_structure,capabilities,devin_session_id,session_url,"
+                            "seen_devin_ids,limitations,created_at,updated_at"
+                        ),
+                        "limit": "1",
+                    },
+                )
+            except (httpx.HTTPError, ValueError) as error:
+                self._record_failure("investigations health check", error)
+                healthy = False
+            else:
+                healthy = True
+            self._health_cache = (
+                now + settings.supabase_health_cache_seconds,
+                checked_at,
+                healthy,
+            )
+            cached = self._health_cache
+        failure = self._last_failure
+        if failure is not None and failure.timestamp > cached[1]:
+            healthy = False
+        else:
+            healthy = cached[2]
+        return {
+            "healthy": healthy,
+            "last_failure": self.last_failure,
+        }
 
     def persist_job(self, job: Job) -> None:
         if not self.enabled:
             return
         try:
             self._upsert("investigations", self._job_row(job), "id")
-            if job.messages:
+        except (httpx.HTTPError, ValueError) as error:
+            self._record_failure("investigations upsert", error)
+            return
+        if job.messages:
+            try:
                 self._upsert(
                     "investigation_messages",
                     [self._message_row(job.id, message) for message in job.messages],
                     "id",
                 )
-            if job.events:
+            except (httpx.HTTPError, ValueError) as error:
+                self._record_failure("investigation_messages upsert", error)
+                return
+        if job.events:
+            try:
                 self._upsert(
                     "investigation_events",
                     [self._event_row(job.id, event) for event in job.events],
                     "investigation_id,event_id",
                 )
-        except (httpx.HTTPError, ValueError) as error:
-            logger.warning("Supabase job persistence failed for %s: %s", job.id, error)
+            except (httpx.HTTPError, ValueError) as error:
+                self._record_failure("investigation_events upsert", error)
 
     def persist_artifact(self, job: Job, artifact: ArtifactInfo, path: Path) -> None:
         if not self.enabled:
@@ -55,6 +132,10 @@ class SupabaseRepository:
                 structured_payload = None
         try:
             self._upload(storage_path, path, artifact.media_type)
+        except (httpx.HTTPError, OSError, ValueError) as error:
+            self._record_failure("artifact storage upload", error)
+            return
+        try:
             self._upsert(
                 "investigation_artifacts",
                 self._artifact_row(
@@ -66,7 +147,11 @@ class SupabaseRepository:
                 ),
                 "investigation_id,filename",
             )
-            if artifact.stage in {"plan", "synthesis", "simulation"} and structured_payload is not None:
+        except (httpx.HTTPError, ValueError) as error:
+            self._record_failure("investigation_artifacts upsert", error)
+            return
+        if artifact.stage in {"plan", "synthesis", "simulation"} and structured_payload is not None:
+            try:
                 self._patch(
                     "research_results",
                     {
@@ -77,13 +162,8 @@ class SupabaseRepository:
                     },
                     {"investigation_id": f"eq.{job.id}"},
                 )
-        except (httpx.HTTPError, ValueError) as error:
-            logger.warning(
-                "Supabase artifact persistence failed for %s/%s: %s",
-                job.id,
-                artifact.filename,
-                error,
-            )
+            except (httpx.HTTPError, ValueError) as error:
+                self._record_failure("research_results update", error)
 
     def persist_validation_error(self, job_id: str, filename: str, error: str) -> None:
         if not self.enabled:
@@ -95,11 +175,7 @@ class SupabaseRepository:
                 {"investigation_id": f"eq.{job_id}"},
             )
         except (httpx.HTTPError, ValueError) as caught:
-            logger.warning(
-                "Supabase validation error persistence failed for %s: %s",
-                job_id,
-                caught,
-            )
+            self._record_failure("research_results validation error update", caught)
 
     def load_jobs(self) -> list[Job]:
         if not self.enabled:
@@ -111,7 +187,7 @@ class SupabaseRepository:
             artifacts = self._select("investigation_artifacts")
             research_results = self._select("research_results")
         except (httpx.HTTPError, ValueError) as error:
-            logger.warning("Supabase job hydration failed: %s", error)
+            self._record_failure("job hydration", error)
             return []
         messages_by_job: defaultdict[str, list[Message]] = defaultdict(list)
         for row in messages:
@@ -231,12 +307,7 @@ class SupabaseRepository:
             destination.write_bytes(response.content)
             return True
         except (httpx.HTTPError, ValueError, OSError) as error:
-            logger.warning(
-                "Supabase artifact download failed for %s/%s: %s",
-                job_id,
-                filename,
-                error,
-            )
+            self._record_failure("artifact download", error)
             return False
 
     def verify_user(self, access_token: str) -> str | None:
@@ -248,7 +319,8 @@ class SupabaseRepository:
                 "/auth/v1/user",
                 bearer=access_token,
             )
-        except httpx.HTTPError:
+        except httpx.HTTPError as error:
+            self._record_failure("auth user verification", error)
             return None
         payload = response.json()
         user_id = payload.get("id") if isinstance(payload, dict) else None
@@ -353,8 +425,23 @@ class SupabaseRepository:
             headers=request_headers,
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as error:
+            detail = response.text.strip() or str(error)
+            raise SupabaseRequestError(
+                f"{method} {path} returned HTTP {response.status_code}: {detail}"
+            ) from error
         return response
+
+    def _record_failure(self, operation: str, error: Exception) -> None:
+        failure = SupabaseFailure(
+            operation=operation,
+            message=str(error),
+            timestamp=datetime.now(timezone.utc),
+        )
+        self._last_failure = failure
+        logger.error("Supabase %s failed: %s", operation, failure.message)
 
     @staticmethod
     def _job_row(job: Job) -> dict[str, object]:

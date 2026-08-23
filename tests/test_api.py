@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
 from backend.app.settings import settings
 from backend.app.store import store as live_store
+from backend.app.supabase import supabase
 
 
 class FakeDevin:
@@ -355,6 +357,8 @@ def test_unconfigured_job_fails_without_local_fallback(monkeypatch, tmp_path: Pa
 
 
 def test_health_reports_devin_runtime(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "supabase_url", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "")
     monkeypatch.delenv("DEVIN_API_KEY", raising=False)
     monkeypatch.delenv("DEVIN_ORG_ID", raising=False)
     monkeypatch.delenv("DEVIN_SNAPSHOT_ID", raising=False)
@@ -372,6 +376,35 @@ def test_health_reports_devin_runtime(monkeypatch) -> None:
     assert ready["configured"] is True
     assert ready["snapshot_configured"] is True
     assert ready["missing"] == []
+    assert "supabase_healthy" not in ready
+
+
+def test_health_reports_supabase_failure_detail(monkeypatch) -> None:
+    class FailedResponse:
+        status_code = 400
+        text = '{"code":"PGRST204","message":"column investigations.playbook_id does not exist"}'
+
+        def raise_for_status(self) -> None:
+            request = httpx.Request(
+                "GET",
+                "https://example.supabase.co/rest/v1/investigations",
+            )
+            raise httpx.HTTPStatusError("Client error", request=request, response=self)
+
+    monkeypatch.setattr(settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "service-role")
+    monkeypatch.setattr(supabase, "_health_cache", None)
+    monkeypatch.setattr(supabase, "_last_failure", None)
+    monkeypatch.setattr(httpx, "request", lambda *args, **kwargs: FailedResponse())
+
+    payload = TestClient(app).get("/api/health").json()
+
+    assert payload["supabase_configured"] is True
+    assert payload["supabase_healthy"] is False
+    failure = payload["supabase_last_failure"]
+    assert failure["operation"] == "investigations health check"
+    assert "PGRST204" in failure["message"]
+    assert "playbook_id" in failure["message"]
 
 
 def test_imports_existing_session_without_creating(monkeypatch, tmp_path: Path) -> None:
