@@ -1,17 +1,32 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { artifactUrl, loadArtifactBlob } from "./api";
 import { authEnabled } from "./auth";
 
-function useArtifactObjectUrl(jobId: string, filename: string): string | null {
+function useArtifactObjectUrl(
+  jobId: string,
+  filename: string,
+  onError?: () => void,
+): string | null {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     if (!authEnabled) return;
     let cancelled = false;
     void loadArtifactBlob(jobId, filename).then((blob) => {
-      if (cancelled || !blob) return;
+      if (cancelled) return;
+      if (!blob) {
+        onErrorRef.current?.();
+        return;
+      }
       setObjectUrl(URL.createObjectURL(blob));
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (!cancelled) onErrorRef.current?.();
+    });
     return () => {
       cancelled = true;
       setObjectUrl((current) => {
@@ -78,12 +93,31 @@ export function ArtifactImage({
   jobId,
   filename,
   alt,
+  onError,
 }: {
   jobId: string;
   filename: string;
   alt: string;
+  onError?: () => void;
 }) {
-  const objectUrl = useArtifactObjectUrl(jobId, filename);
+  const [failed, setFailed] = useState(false);
+  const objectUrl = useArtifactObjectUrl(jobId, filename, () => {
+    setFailed(true);
+    onError?.();
+  });
+  useEffect(() => {
+    setFailed(false);
+  }, [filename, jobId]);
+  if (failed || (authEnabled && !objectUrl)) return null;
   const src = authEnabled ? objectUrl ?? undefined : artifactUrl(jobId, filename);
-  return <img src={src} alt={alt} />;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => {
+        setFailed(true);
+        onError?.();
+      }}
+    />
+  );
 }

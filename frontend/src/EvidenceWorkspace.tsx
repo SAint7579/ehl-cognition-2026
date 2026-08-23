@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { ArtifactImage, ArtifactLink } from "./Artifact";
 import {
   EVIDENCE_TASKS,
+  labelCapability,
   outputPresentation,
+  visibleEvidenceTasks,
 } from "./evidence";
 import type {
   EvidenceTask,
@@ -68,41 +71,54 @@ export function EvidenceWorkspace({
   working: boolean;
 }) {
   const task = tasks.find((item) => item.id === selected) ?? null;
+  const [briefExpanded, setBriefExpanded] = useState(false);
+
   return (
     <section className="evidence">
-      <header className="evidence-top">
+      <header className={`evidence-top ${briefExpanded ? "is-expanded" : ""}`}>
         <div className="evidence-title-row">
           <div>
             <p className="eyebrow">Research brief</p>
             <h2>{job.title}</h2>
           </div>
-          <StatusBadge job={job} working={working} />
-        </div>
-        <p className="evidence-objective">{job.objective}</p>
-        <div className="evidence-stats">
-          <span>{tasks.length} tasks</span>
-          <span>{job.artifacts.length} saved outputs</span>
-          <span>Updated {formatDateTime(job.updated_at)}</span>
-        </div>
-        {job.capabilities.length ? (
-          <div className="capability-list" aria-label="Research capabilities">
-            {job.capabilities.map((capability) => (
-              <span key={capability}>{labelCapability(capability)}</span>
-            ))}
+          <div className="evidence-title-actions">
+            <StatusBadge job={job} working={working} />
+            <button
+              type="button"
+              className="evidence-brief-toggle"
+              onClick={() => setBriefExpanded((expanded) => !expanded)}
+              aria-expanded={briefExpanded}
+            >
+              {briefExpanded ? "Hide brief" : "Show brief"}
+            </button>
           </div>
+        </div>
+        {briefExpanded ? (
+          <>
+            <p className="evidence-objective">{job.objective}</p>
+            <div className="evidence-stats">
+              <span>{visibleEvidenceTasks(tasks, research).length} tasks</span>
+              <span>{job.artifacts.length} saved outputs</span>
+              <span>Updated {formatDateTime(job.updated_at)}</span>
+            </div>
+            {job.capabilities.length ? (
+              <div className="capability-list" aria-label="Research capabilities">
+                {job.capabilities.map((capability) => (
+                  <span key={capability}>{labelCapability(capability)}</span>
+                ))}
+              </div>
+            ) : null}
+          </>
         ) : null}
       </header>
       <div className="results">
         {job.error && !working ? <div className="card warn-card">{friendlyError(job.error)}</div> : null}
-        <TaskNavigation tasks={tasks} selected={selected} onSelect={onSelect} />
         {selected === "overview" || !task ? (
           <TaskOverview
             job={job}
-            tasks={tasks}
             research={research}
             structuredArtifacts={structuredArtifacts}
             onSelect={onSelect}
-            working={working}
           />
         ) : (
           <TaskEvidence
@@ -158,56 +174,17 @@ function StatusBadge({ job, working }: { job: Job; working: boolean }) {
   return <span className={`status-badge status-${job.error ? "error" : working ? "live" : "ready"}`}>{state}</span>;
 }
 
-function TaskNavigation({
-  tasks,
-  selected,
-  onSelect,
-}: {
-  tasks: EvidenceTask[];
-  selected: EvidenceTaskId;
-  onSelect: (task: EvidenceTaskId) => void;
-}) {
-  return (
-    <nav className="task-navigation" aria-label="Evidence tasks">
-      <button
-        type="button"
-        className={selected === "overview" ? "selected" : ""}
-        onClick={() => onSelect("overview")}
-      >
-        Overview
-      </button>
-      {tasks.map((task) => (
-        <button
-          type="button"
-          className={selected === task.id ? "selected" : ""}
-          onClick={() => onSelect(task.id)}
-          key={task.id}
-          title={task.title}
-        >
-          {task.shortTitle}
-          {task.artifacts.length ? <span>{task.artifacts.length}</span> : null}
-        </button>
-      ))}
-    </nav>
-  );
-}
-
 function TaskOverview({
   job,
-  tasks,
   research,
   structuredArtifacts,
   onSelect,
-  working,
 }: {
   job: Job;
-  tasks: EvidenceTask[];
   research: ResearchWorkspace | null;
   structuredArtifacts: StructuredArtifact[];
   onSelect: (task: EvidenceTaskId) => void;
-  working: boolean;
 }) {
-  const savedOutputs = tasks.reduce((count, task) => count + task.artifacts.length, 0);
   const fallback = finalResultArtifact(structuredArtifacts);
   return (
     <section className="task-overview" aria-label="Investigation task outputs">
@@ -231,34 +208,6 @@ function TaskOverview({
       ) : fallback ? (
         <FinalResultFallback artifact={fallback} onOpen={() => onSelect("synthesis")} />
       ) : null}
-      <div className="task-overview-heading">
-        <div>
-          <p className="eyebrow">Investigation map</p>
-          <h3>Question to evidence, task by task</h3>
-        </div>
-        <span>{working ? "Updating live" : `${savedOutputs} outputs retained`}</span>
-      </div>
-      <div className="task-summary-list">
-        {tasks.map((task, index) => (
-          <button type="button" className="task-summary-card" onClick={() => onSelect(task.id)} key={task.id}>
-            <span className="task-number">{String(index + 1).padStart(2, "0")}</span>
-            <span className="task-summary-copy">
-              <strong>{task.title}</strong>
-              <p>{task.purpose}</p>
-              {task.summary ? <blockquote>{task.summary}</blockquote> : null}
-              <span className="task-output-count">
-                {task.artifacts.length
-                  ? `${task.artifacts.length} saved output${task.artifacts.length === 1 ? "" : "s"}`
-                  : working
-                    ? "Waiting for output"
-                    : "Context recorded"}
-                {task.updatedAt ? ` · ${formatDateTime(task.updatedAt)}` : ""}
-              </span>
-            </span>
-            <span className="task-open" aria-hidden="true">→</span>
-          </button>
-        ))}
-      </div>
     </section>
   );
 }
@@ -321,7 +270,6 @@ function TaskEvidence({
       {task.id === "simulation" && research?.simulations ? (
         <SimulationCard simulations={research.simulations} />
       ) : null}
-      <OutputManifest jobId={job.id} task={task} />
       {task.id === "homolog-search" ? <HomologCard hits={homologs} /> : null}
       {task.id === "conservation" ? <ConservationCard columns={columns} /> : null}
       {task.id === "structure" ? (
@@ -353,6 +301,7 @@ function TaskEvidence({
           </p>
         </div>
       ) : null}
+      <OutputManifest jobId={job.id} task={task} />
     </section>
   );
 }
@@ -401,20 +350,41 @@ function FigureCard({
   return (
     <>
       {images.map((item) => {
-        const presentation = outputPresentation(item, task);
-        return (
-          <div className="card figure-card" key={item.filename}>
-            <p className="card-kicker">Generated figure</p>
-            <h3>{presentation.title}</h3>
-            <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
-            <figure>
-              <ArtifactImage jobId={jobId} filename={item.filename} alt={presentation.title} />
-              <figcaption>{item.filename}</figcaption>
-            </figure>
-          </div>
-        );
+        return <FigurePreview key={item.filename} jobId={jobId} item={item} task={task} />;
       })}
     </>
+  );
+}
+
+function FigurePreview({
+  jobId,
+  item,
+  task,
+}: {
+  jobId: string;
+  item: ArtifactInfo;
+  task: EvidenceTaskDefinition;
+}) {
+  const presentation = outputPresentation(item, task);
+  const [imageFailed, setImageFailed] = useState(false);
+  return (
+    <div className="card figure-card">
+      <p className="card-kicker">Generated figure</p>
+      <h3>{presentation.title}</h3>
+      <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
+      <figure>
+        <ArtifactImage
+          jobId={jobId}
+          filename={item.filename}
+          alt={presentation.title}
+          onError={() => setImageFailed(true)}
+        />
+        <figcaption>
+          {item.filename}
+          {imageFailed ? " · Preview unavailable" : ""}
+        </figcaption>
+      </figure>
+    </div>
   );
 }
 
@@ -1020,10 +990,6 @@ function formatDateTime(value: string): string {
         hour: "2-digit",
         minute: "2-digit",
       });
-}
-
-function labelCapability(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function friendlyError(error: string): string {
