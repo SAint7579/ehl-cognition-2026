@@ -724,9 +724,12 @@ function parseBackboneTrace(pdbText: string | null, triad: ResidueAnnotation[]):
   const maxY = Math.max(...projected.map((point) => point.y));
   const spanX = maxX - minX || 1;
   const spanY = maxY - minY || 1;
+  const scale = Math.min(184 / spanX, 40 / spanY);
+  const offsetX = (200 - spanX * scale) / 2;
+  const offsetY = (48 - spanY * scale) / 2;
   const normalise = (point: BackbonePoint): BackbonePoint => ({
-    x: 8 + ((point.x - minX) / spanX) * 184,
-    y: 8 + ((maxY - point.y) / spanY) * 32,
+    x: offsetX + (point.x - minX) * scale,
+    y: offsetY + (maxY - point.y) * scale,
     residue: point.residue,
   });
   const normalised = sampled.map(normalise);
