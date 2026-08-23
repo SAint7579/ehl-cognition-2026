@@ -42,6 +42,8 @@ export type Job = {
   title: string;
   objective: string;
   playbook: string;
+  playbook_id: string | null;
+  playbook_title: string | null;
   status: JobStatus;
   active_agent: Speaker | null;
   active_stage: string | null;
@@ -56,6 +58,12 @@ export type Job = {
   events: JobEvent[];
   artifacts: ArtifactInfo[];
   limitations: string[];
+};
+
+export type Protocol = {
+  id: string;
+  title: string;
+  has_structured_output_schema: boolean;
 };
 
 export type Health = {

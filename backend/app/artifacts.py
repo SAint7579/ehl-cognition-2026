@@ -11,6 +11,7 @@ from backend.app.models import ArtifactInfo
 from backend.app.settings import settings
 
 NAMED_ARTIFACTS = (
+    "protocol.md",
     "research_plan.json",
     "literature_sources.csv",
     "synthesis.json",

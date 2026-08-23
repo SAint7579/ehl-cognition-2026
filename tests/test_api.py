@@ -20,6 +20,9 @@ class FakeDevin:
         self.sent: list[str] = []
         self.prompts: list[str] = []
         self.messages: list[dict[str, Any]] = []
+        self.playbooks: list[dict[str, Any]] = []
+        self.structured_output: dict[str, Any] | None = None
+        self.selected_playbook_id: str | None = None
         self.attachments: dict[str, bytes] = {
             "homolog_search.json": json.dumps(
                 {"hits": [{"accession": "A0A0K8P6T7", "percent_identity": 100.0, "evalue": 0.0}]}
@@ -35,7 +38,13 @@ class FakeDevin:
             ).encode(),
         }
 
-    def create_session(self, prompt: str, title: str) -> dict[str, Any]:
+    def create_session(
+        self,
+        prompt: str,
+        title: str,
+        playbook_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.selected_playbook_id = playbook_id
         self.prompts.append(prompt)
         self.messages = [
             {"id": "m1", "type": "devin_message", "message": "[planner] Starting CPU investigation in the sandbox."},
@@ -45,12 +54,18 @@ class FakeDevin:
         return {"session_id": self.session_id, "url": self.url}
 
     def get_session(self, session_id: str) -> dict[str, Any]:
-        return {
+        response = {
             "session_id": session_id,
             "status": self.status,
             "status_detail": self.status_detail,
             "url": self.url,
         }
+        if self.structured_output is not None:
+            response["structured_output"] = self.structured_output
+        return response
+
+    def list_playbooks(self) -> list[dict[str, Any]]:
+        return list(self.playbooks)
 
     def send_message(self, session_id: str, message: str) -> None:
         self.sent.append(message)
@@ -122,6 +137,106 @@ def test_job_lifecycle_and_follow_up(monkeypatch, tmp_path: Path) -> None:
     later = [message["body"] for message in followed["messages"] if message["speaker"] != "user"]
     for body in first_devin:
         assert later.count(body) == 1
+
+
+def test_protocol_discovery_selection_snapshot_and_structured_synthesis(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from backend.app import main
+
+    fake = _install(monkeypatch, tmp_path)
+    fake.playbooks = [
+        {
+            "playbook_id": "pb-lab",
+            "title": "Lab investigation",
+            "body": "# Lab protocol\nUse only reviewable evidence.",
+            "structured_output_schema": {"type": "object"},
+        }
+    ]
+    fake.structured_output = {
+        "objective": "Investigate enzyme stability.",
+        "summary": "The evidence supports a stable variant.",
+        "findings": [],
+    }
+    main._protocol_cache = None
+    client = TestClient(app)
+    protocols = client.get("/api/protocols")
+    assert protocols.status_code == 200
+    assert protocols.json() == [
+        {
+            "id": "pb-lab",
+            "title": "Lab investigation",
+            "has_structured_output_schema": True,
+        }
+    ]
+    created = client.post(
+        "/api/jobs",
+        json={"objective": "Investigate enzyme stability.", "playbook_id": "pb-lab"},
+    )
+    assert created.status_code == 200
+    job = created.json()
+    assert job["playbook_id"] == "pb-lab"
+    assert job["playbook_title"] == "Lab investigation"
+    assert fake.selected_playbook_id == "pb-lab"
+    assert (tmp_path / job["id"] / "protocol.md").read_text() == fake.playbooks[0]["body"]
+    assert any(item["filename"] == "protocol.md" for item in job["artifacts"])
+    synthesis = json.loads((tmp_path / job["id"] / "synthesis.json").read_text())
+    assert synthesis["summary"] == "The evidence supports a stable variant."
+    assert "protein_engineering_v1.md" not in fake.prompts[-1]
+
+
+def test_protocol_discovery_degrades_to_empty_list(monkeypatch) -> None:
+    from backend.app import main
+
+    main._protocol_cache = None
+    monkeypatch.setattr(
+        "backend.app.executor.get_client",
+        lambda: (_ for _ in ()).throw(RuntimeError("Devin is not configured")),
+    )
+    response = TestClient(app).get("/api/protocols")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_unknown_protocol_is_rejected_and_invalid_output_is_reported(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from backend.app import main
+
+    fake = _install(monkeypatch, tmp_path)
+    fake.playbooks = [
+        {
+            "playbook_id": "pb-lab",
+            "title": "Lab investigation",
+            "body": "Protocol",
+            "structured_output_schema": {"type": "object"},
+        }
+    ]
+    main._protocol_cache = None
+    client = TestClient(app)
+    unknown = client.post(
+        "/api/jobs",
+        json={"objective": "Investigate enzyme stability.", "playbook_id": "unknown"},
+    )
+    assert unknown.status_code == 400
+
+    job = live_store.create("Investigate enzyme stability.", None, True, playbook_id="pb-lab")
+    synthesis = {
+        "objective": job.objective,
+        "summary": "Existing valid synthesis.",
+        "findings": [],
+    }
+    (tmp_path / job.id / "synthesis.json").write_text(json.dumps(synthesis))
+    fake.structured_output = {"summary": ""}
+    from backend.app.executor import run_job
+
+    run_job(job.id, client=fake, sleep=lambda _: None)
+    assert json.loads((tmp_path / job.id / "synthesis.json").read_text()) == synthesis
+    workspace = client.get(f"/api/jobs/{job.id}/research")
+    assert workspace.status_code == 200
+    assert "synthesis.json" in workspace.json()["validation_errors"]
 
 
 def test_unconfigured_job_fails_without_local_fallback(monkeypatch, tmp_path: Path) -> None:

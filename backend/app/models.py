@@ -40,6 +40,13 @@ class JobCreate(BaseModel):
     include_structure: bool = True
     devin_session_id: str | None = Field(default=None, max_length=400)
     capabilities: list[ResearchCapability] = Field(default_factory=list)
+    playbook_id: str | None = Field(default=None, max_length=200)
+
+
+class ProtocolInfo(BaseModel):
+    id: str
+    title: str
+    has_structured_output_schema: bool = False
 
 
 class MessageCreate(BaseModel):
@@ -90,6 +97,8 @@ class Job(BaseModel):
     title: str
     objective: str
     playbook: str = "protein-engineering-v1"
+    playbook_id: str | None = None
+    playbook_title: str | None = None
     status: JobStatus
     active_agent: Speaker | None = None
     active_stage: str | None = None

@@ -12,8 +12,13 @@ PLAYBOOK_PATH = settings.root / "playbooks" / "protein_engineering_v1.md"
 def investigation_prompt(
     objective: str,
     capabilities: list[ResearchCapability],
+    playbook_attached: bool = False,
 ) -> str:
-    playbook = PLAYBOOK_PATH.read_text(encoding="utf-8") if PLAYBOOK_PATH.is_file() else ""
+    playbook = (
+        PLAYBOOK_PATH.read_text(encoding="utf-8")
+        if PLAYBOOK_PATH.is_file() and not playbook_attached
+        else ""
+    )
     request = objective.strip()
     selected_capabilities = capability_prompt(capabilities)
     return f"""Internal operating instructions. Never paste this block into chat.
@@ -114,7 +119,7 @@ Chat rules for every reply the scientist will see:
 Scientist's request:
 {request}
 
---- playbooks/protein_engineering_v1.md (protein investigations only) ---
+{"--- playbooks/protein_engineering_v1.md (protein investigations only) ---" if playbook else ""}
 {playbook}
 """
 

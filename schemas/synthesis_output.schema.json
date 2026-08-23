@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scientific synthesis",
+  "description": "The final scientific result of an investigation. Every field is an integrated conclusion drawn from artifacts produced in the sandbox, never from memory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["objective", "summary", "findings"],
+  "properties": {
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The scientific question this investigation answered, in the scientist's terms."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A scientific conclusion a biologist can read on its own: what was established, how strongly, and what it means. Not a worklog of what was run."
+    },
+    "findings": {
+      "type": "array",
+      "description": "One entry per distinct scientific claim. Order by importance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "statement", "confidence"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The claim as a short scientific statement, e.g. 'Ser160 is the catalytic nucleophile', not a step name."
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the evidence shows, stating which parts are KNOWN deposited records and which are CALCULATED in this sandbox."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW", "NOT_ASSESSED"],
+            "description": "HIGH only when independent lines of evidence agree. Never assert experimental validation."
+          },
+          "evidence_files": {
+            "type": "array",
+            "description": "Basenames of attached artifacts that support this claim.",
+            "items": { "type": "string" }
+          },
+          "implications": {
+            "type": "array",
+            "description": "What this claim means for the scientist's decisions.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "agreements": {
+      "type": "array",
+      "description": "Points where independent lines of evidence converge.",
+      "items": { "type": "string" }
+    },
+    "disagreements": {
+      "type": "array",
+      "description": "Counter-evidence and conflicts between sources or calculations. Report these, never omit them.",
+      "items": { "type": "string" }
+    },
+    "knowledge_gaps": {
+      "type": "array",
+      "description": "What remains unresolved and could not be settled with the available data or tools.",
+      "items": { "type": "string" }
+    },
+    "recommended_next_steps": {
+      "type": "array",
+      "description": "Concrete next experiments or calculations, each tied to the evidence and uncertainty motivating it.",
+      "items": { "type": "string" }
+    },
+    "limitations": {
+      "type": "array",
+      "description": "Method limitations that bound the conclusions, e.g. rigid-receptor docking, short simulation, small homolog set.",
+      "items": { "type": "string" }
+    }
+  }
+}
