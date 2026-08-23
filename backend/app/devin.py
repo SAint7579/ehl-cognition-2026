@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Protocol
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -22,6 +22,7 @@ class SessionClient(Protocol):
         title: str,
         playbook_id: str | None = None,
     ) -> dict[str, Any]: ...
+    def list_playbooks(self) -> list[dict[str, Any]]: ...
     def get_session(self, session_id: str) -> dict[str, Any]: ...
     def send_message(self, session_id: str, message: str) -> None: ...
     def list_messages(self, session_id: str) -> list[dict[str, Any]]: ...
@@ -126,6 +127,12 @@ class DevinClient:
             if not isinstance(next_cursor, str) or not next_cursor:
                 return items
             after = next_cursor
+
+    def get_playbook(self, playbook_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            self._org(f"/playbooks/{quote(playbook_id, safe='')}"),
+        )
 
     def _create(self, body: dict[str, Any]) -> dict[str, Any]:
         data = self._request("POST", self._org("/sessions"), json=body)

@@ -81,6 +81,31 @@ public and are safe to embed in the browser. The Supabase service role key is
 backend-only: never put it in frontend variables, source control, or generated
 artifacts.
 
+### Devin laboratory protocols
+
+The laboratory protocols now live as editable Devin organization playbooks, so
+an operator can update the protocol in Devin without redeploying the backend.
+The current registered playbooks are:
+
+| Title | Playbook ID |
+| --- | --- |
+| Lab investigation v1 | `playbook-e4359843548647fc86aa4dd1df56c7c1` |
+| Protein engineering v2 | `playbook-f1af869f559247df8f57063be907c7e6` |
+| Compound docking v1 | `playbook-5eaa27f62d444e2eaaadfd4e86c3be63` |
+
+Attach `schemas/synthesis_output.schema.json` as the structured-output
+contract when registering these playbooks. The backend discovers available
+playbooks at runtime, lets the scientist select one for a new investigation,
+and snapshots the selected body as `protocol.md` evidence. Devin credentials
+remain backend-only; never expose `DEVIN_API_KEY`, `DEVIN_ORG_ID`, or other
+Devin secrets through Vite or browser code.
+
+Set `DEVIN_PLAYBOOK_ID` on the backend to choose the default playbook when a
+scientist does not make a selection. If the organization has no discoverable
+playbooks, the Protocol picker is hidden and the backend falls back to the
+local markdown protocol behavior for investigations without a selected
+playbook.
+
 ## Supabase setup
 
 1. Create a Supabase project and enable email/password authentication.

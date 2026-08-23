@@ -199,6 +199,32 @@ def test_protocol_discovery_degrades_to_empty_list(monkeypatch) -> None:
     assert response.json() == []
 
 
+def test_empty_protocol_body_skips_snapshot_and_records_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from backend.app import main
+
+    fake = _install(monkeypatch, tmp_path)
+    fake.playbooks = [
+        {
+            "playbook_id": "pb-empty",
+            "title": "Empty protocol",
+            "body": "  \n",
+        }
+    ]
+    main._protocol_cache = None
+    response = TestClient(app).post(
+        "/api/jobs",
+        json={"objective": "Investigate enzyme stability.", "playbook_id": "pb-empty"},
+    )
+    assert response.status_code == 200
+    job = response.json()
+    assert not (tmp_path / job["id"] / "protocol.md").exists()
+    workspace = TestClient(app).get(f"/api/jobs/{job['id']}/research")
+    assert "protocol.md" in workspace.json()["validation_errors"]
+
+
 def test_unknown_protocol_is_rejected_and_invalid_output_is_reported(
     monkeypatch,
     tmp_path: Path,

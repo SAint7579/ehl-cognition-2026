@@ -151,13 +151,22 @@ def run_job(
                     job_id,
                     playbook_title=str(playbook.get("title") or "") or None,
                 )
-            _write_artifact(
-                job_id,
-                job_dir(job_id),
-                "protocol.md",
-                str(playbook.get("body") or "").encode("utf-8"),
-                {},
-            )
+            protocol_body = playbook.get("body")
+            if isinstance(protocol_body, str) and protocol_body.strip():
+                _write_artifact(
+                    job_id,
+                    job_dir(job_id),
+                    "protocol.md",
+                    protocol_body.encode("utf-8"),
+                    {},
+                )
+            else:
+                _record_validation_error(
+                    job_id,
+                    "protocol.md",
+                    "The selected Devin playbook did not provide a non-empty body; "
+                    "the provenance snapshot was skipped.",
+                )
         session = session_client.create_session(
             investigation_prompt(job.objective, job.capabilities, playbook_attached),
             job.title,
@@ -705,6 +714,7 @@ def _harvest(
             continue
         known_bytes = _write_artifact(job_id, out, basename, data, known_bytes)
     payload = session.get("structured_output")
+    structured_synthesis_valid = False
     if isinstance(payload, dict):
         job = store.get(job_id)
         objective = job.objective if job is not None else ""
@@ -713,6 +723,7 @@ def _harvest(
         except Exception as error:
             _record_validation_error(job_id, "synthesis.json", str(error))
         else:
+            structured_synthesis_valid = True
             synthesis_path = out / "synthesis.json"
             if not _valid_synthesis_file(synthesis_path, objective):
                 known_bytes = _write_artifact(
@@ -722,7 +733,7 @@ def _harvest(
                     json.dumps(synthesis.model_dump(mode="json")).encode("utf-8"),
                     known_bytes,
                 )
-    if isinstance(payload, dict):
+    if isinstance(payload, dict) and not structured_synthesis_valid:
         for key, value in payload.items():
             basename = Path(str(key)).name
             if not is_allowed_artifact(basename):
@@ -750,6 +761,16 @@ def _harvest(
 def _selected_playbook(client: SessionClient, playbook_id: str) -> dict[str, Any] | None:
     for playbook in client.list_playbooks():
         if str(playbook.get("playbook_id") or "") == playbook_id:
+            body = playbook.get("body")
+            if not isinstance(body, str) or not body.strip():
+                fetch = getattr(client, "get_playbook", None)
+                if callable(fetch):
+                    try:
+                        fetched = fetch(playbook_id)
+                    except Exception:
+                        fetched = None
+                    if isinstance(fetched, dict):
+                        return {**playbook, **fetched}
             return playbook
     return None
 
