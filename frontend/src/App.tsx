@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createJob,
   getHealth,
@@ -20,10 +20,9 @@ import {
 import { visibleMessages } from "./chat";
 import { EvidenceWorkspace, parseDelimited } from "./EvidenceWorkspace";
 import type { TableArtifact } from "./EvidenceWorkspace";
-import { buildEvidenceTasks, evidenceTaskForStage } from "./evidence";
+import { buildEvidenceTasks } from "./evidence";
 import type { EvidenceTaskId } from "./evidence";
-import { InvestigationFlow } from "./InvestigationFlow";
-import type { InvestigationSelection } from "./InvestigationFlow";
+import { InvestigationGraph } from "./InvestigationGraph";
 import { Sidebar } from "./Sidebar";
 import {
   authEnabled,
@@ -272,9 +271,6 @@ export function App() {
   }, [residues, structure]);
   const turns = useMemo(() => (job ? visibleMessages(job.messages) : []), [job]);
   const evidenceTasks = useMemo(() => (job ? buildEvidenceTasks(job) : []), [job]);
-  const onFlowSelection = useCallback((selection: InvestigationSelection) => {
-    setSelectedEvidenceTask(evidenceTaskForStage(selection.stage));
-  }, []);
   const awaitingConfirm = job?.active_stage === "waiting_for_approval";
   const awaitingUser = job?.active_stage === "waiting_for_user";
   const working =
@@ -498,11 +494,13 @@ export function App() {
         ) : null}
         {error ? <div className="inline-error">{error}</div> : null}
         <div className="investigation-body">
-          <InvestigationFlow
+          <InvestigationGraph
             key={job.id}
             job={job}
             working={working}
-            onSelectionChange={onFlowSelection}
+            research={research}
+            selected={selectedEvidenceTask}
+            onSelect={setSelectedEvidenceTask}
           />
           <Worklog
             job={job}

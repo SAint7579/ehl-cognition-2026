@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { ArtifactImage, ArtifactLink } from "./Artifact";
 import {
   EVIDENCE_TASKS,
@@ -68,6 +69,20 @@ export function EvidenceWorkspace({
   working: boolean;
 }) {
   const task = tasks.find((item) => item.id === selected) ?? null;
+  const objectiveRef = useRef<HTMLParagraphElement>(null);
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
+  const [objectiveOverflows, setObjectiveOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    setObjectiveExpanded(false);
+  }, [job.id, job.objective]);
+
+  useLayoutEffect(() => {
+    if (objectiveExpanded) return;
+    const element = objectiveRef.current;
+    if (element) setObjectiveOverflows(element.scrollHeight > element.clientHeight + 1);
+  }, [job.objective, objectiveExpanded]);
+
   return (
     <section className="evidence">
       <header className="evidence-top">
@@ -78,7 +93,24 @@ export function EvidenceWorkspace({
           </div>
           <StatusBadge job={job} working={working} />
         </div>
-        <p className="evidence-objective">{job.objective}</p>
+        <div className="evidence-objective-wrap">
+          <p
+            ref={objectiveRef}
+            className={`evidence-objective ${objectiveExpanded ? "is-expanded" : ""}`}
+          >
+            {job.objective}
+          </p>
+          {objectiveOverflows ? (
+            <button
+              type="button"
+              className="evidence-objective-toggle"
+              onClick={() => setObjectiveExpanded((expanded) => !expanded)}
+              aria-expanded={objectiveExpanded}
+            >
+              {objectiveExpanded ? "Show less" : "Show more"}
+            </button>
+          ) : null}
+        </div>
         <div className="evidence-stats">
           <span>{tasks.length} tasks</span>
           <span>{job.artifacts.length} saved outputs</span>
@@ -94,7 +126,6 @@ export function EvidenceWorkspace({
       </header>
       <div className="results">
         {job.error && !working ? <div className="card warn-card">{friendlyError(job.error)}</div> : null}
-        <TaskNavigation tasks={tasks} selected={selected} onSelect={onSelect} />
         {selected === "overview" || !task ? (
           <TaskOverview
             job={job}
@@ -156,40 +187,6 @@ function StatusBadge({ job, working }: { job: Job; working: boolean }) {
           ? "Running"
           : "Ready";
   return <span className={`status-badge status-${job.error ? "error" : working ? "live" : "ready"}`}>{state}</span>;
-}
-
-function TaskNavigation({
-  tasks,
-  selected,
-  onSelect,
-}: {
-  tasks: EvidenceTask[];
-  selected: EvidenceTaskId;
-  onSelect: (task: EvidenceTaskId) => void;
-}) {
-  return (
-    <nav className="task-navigation" aria-label="Evidence tasks">
-      <button
-        type="button"
-        className={selected === "overview" ? "selected" : ""}
-        onClick={() => onSelect("overview")}
-      >
-        Overview
-      </button>
-      {tasks.map((task) => (
-        <button
-          type="button"
-          className={selected === task.id ? "selected" : ""}
-          onClick={() => onSelect(task.id)}
-          key={task.id}
-          title={task.title}
-        >
-          {task.shortTitle}
-          {task.artifacts.length ? <span>{task.artifacts.length}</span> : null}
-        </button>
-      ))}
-    </nav>
-  );
 }
 
 function TaskOverview({
