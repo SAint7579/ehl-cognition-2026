@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ class JobStore:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()
+        self._last_supabase_refresh = 0.0
         self.load()
 
     def load(self) -> None:
@@ -36,10 +39,28 @@ class JobStore:
                         }
                     )
                 loaded[job.id] = job
-        loaded.update({job.id: job for job in supabase.load_jobs()})
         with self._lock:
             self._jobs.update(loaded)
+        self._refresh_from_supabase(force=True)
         self._restore_last_session()
+
+    def _refresh_from_supabase(self, force: bool = False) -> None:
+        if not supabase.enabled:
+            return
+        with self._refresh_lock:
+            now = time.monotonic()
+            if (
+                not force
+                and now - self._last_supabase_refresh < settings.supabase_refresh_seconds
+            ):
+                return
+            self._last_supabase_refresh = now
+            remote_jobs = supabase.load_jobs()
+            with self._lock:
+                for remote_job in remote_jobs:
+                    local_job = self._jobs.get(remote_job.id)
+                    if local_job is None or remote_job.updated_at > local_job.updated_at:
+                        self._jobs[remote_job.id] = remote_job
 
     def create(
         self,
@@ -78,9 +99,15 @@ class JobStore:
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             job = self._jobs.get(job_id)
+            if job is not None:
+                return job.model_copy(deep=True)
+        self._refresh_from_supabase()
+        with self._lock:
+            job = self._jobs.get(job_id)
             return job.model_copy(deep=True) if job else None
 
     def list(self, owner_id: str | None = None) -> list[Job]:
+        self._refresh_from_supabase()
         with self._lock:
             return [
                 job.model_copy(deep=True)
