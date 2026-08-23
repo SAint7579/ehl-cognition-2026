@@ -350,20 +350,41 @@ function FigureCard({
   return (
     <>
       {images.map((item) => {
-        const presentation = outputPresentation(item, task);
-        return (
-          <div className="card figure-card" key={item.filename}>
-            <p className="card-kicker">Generated figure</p>
-            <h3>{presentation.title}</h3>
-            <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
-            <figure>
-              <ArtifactImage jobId={jobId} filename={item.filename} alt={presentation.title} />
-              <figcaption>{item.filename}</figcaption>
-            </figure>
-          </div>
-        );
+        return <FigurePreview key={item.filename} jobId={jobId} item={item} task={task} />;
       })}
     </>
+  );
+}
+
+function FigurePreview({
+  jobId,
+  item,
+  task,
+}: {
+  jobId: string;
+  item: ArtifactInfo;
+  task: EvidenceTaskDefinition;
+}) {
+  const presentation = outputPresentation(item, task);
+  const [imageFailed, setImageFailed] = useState(false);
+  return (
+    <div className="card figure-card">
+      <p className="card-kicker">Generated figure</p>
+      <h3>{presentation.title}</h3>
+      <p className="card-meta">{presentation.purpose} Not an experimental image.</p>
+      <figure>
+        <ArtifactImage
+          jobId={jobId}
+          filename={item.filename}
+          alt={presentation.title}
+          onError={() => setImageFailed(true)}
+        />
+        <figcaption>
+          {item.filename}
+          {imageFailed ? " · Preview unavailable" : ""}
+        </figcaption>
+      </figure>
+    </div>
   );
 }
 
