@@ -1,0 +1,10 @@
+# Railway/Railpack installs from this file. Keep in sync with pyproject.toml.
+biopython
+numpy
+pandas
+scipy
+pydantic>=2
+jsonschema
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27

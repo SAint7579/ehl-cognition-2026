@@ -140,7 +140,7 @@ the poller; Vercel remains suitable for the frontend only.
 Run:
 
 ```sh
-uvicorn backend.app.main:app --host 0.0.0.0 --port "$PORT"
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$PORT"
 ```
 
 Set `RUNS_DIR` to the mounted volume, for example `/data/ehl-cognition/jobs`.
