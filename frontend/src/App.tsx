@@ -5,6 +5,7 @@ import {
   getResearchWorkspace,
   harvestJob,
   listJobs,
+  listProtocols,
   loadConservation,
   loadFinalResult,
   loadHomologs,
@@ -39,6 +40,7 @@ import type {
   Health,
   HomologHit,
   Job,
+  Protocol,
   ResidueAnnotation,
   ResearchWorkspace,
   StructuredArtifact,
@@ -57,6 +59,8 @@ const PETASE_STRUCTURES = new Set(["6EQE", "5XJH"]);
 export function App() {
   const [objective, setObjective] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [selectedProtocolId, setSelectedProtocolId] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +109,7 @@ export function App() {
     restored.current = null;
     if (authEnabled && !session) return;
     getHealth().then(setHealth).catch(() => undefined);
+    listProtocols().then(setProtocols).catch(() => setProtocols([]));
     listJobs()
       .then((items) => {
         const ordered = [...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -290,7 +295,7 @@ export function App() {
     setError(null);
     setStarting(true);
     try {
-      const created = await createJob(objective);
+      const created = await createJob(objective, selectedProtocolId || undefined);
       composing.current = false;
       setJob(created);
       setJobs((current) => upsert(current, created));
@@ -330,6 +335,7 @@ export function App() {
     composing.current = true;
     setJob(null);
     setObjective("");
+    setSelectedProtocolId("");
     setError(null);
     setStarting(false);
     clearEvidence();
@@ -378,6 +384,22 @@ export function App() {
                 autoFocus
               />
             </label>
+            {protocols.length ? (
+              <label className="objective-field">
+                <span>Protocol</span>
+                <select
+                  value={selectedProtocolId}
+                  onChange={(event) => setSelectedProtocolId(event.target.value)}
+                >
+                  <option value="">Use the default protocol</option>
+                  {protocols.map((protocol) => (
+                    <option key={protocol.id} value={protocol.id}>
+                      {protocol.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <div className="example-prompts">
               <span>Try an example</span>
               <div>
@@ -434,6 +456,7 @@ export function App() {
                     ? "The latest turn needs attention"
                     : "Ready for a follow-up"}
             </p>
+            {job.playbook_title ? <p className="status">Protocol: {job.playbook_title}</p> : null}
           </div>
           {job.session_url ? (
             <a className="session-link" href={job.session_url} target="_blank" rel="noreferrer">

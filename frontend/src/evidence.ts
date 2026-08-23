@@ -212,7 +212,7 @@ function taskForArtifact(
   recordedStage?: string,
 ): Exclude<EvidenceTaskId, "overview"> {
   const filename = artifact.filename.toLowerCase();
-  if (["research_plan.json", "run.json"].includes(filename)) return "plan";
+  if (["protocol.md", "research_plan.json", "run.json"].includes(filename)) return "plan";
   if (filename === "literature_sources.csv") return "literature";
   if (["analysis_results.json", "analysis_table.csv"].includes(filename)) return "analysis";
   if (

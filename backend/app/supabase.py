@@ -85,6 +85,22 @@ class SupabaseRepository:
                 error,
             )
 
+    def persist_validation_error(self, job_id: str, filename: str, error: str) -> None:
+        if not self.enabled:
+            return
+        try:
+            self._patch(
+                "research_results",
+                {"validation_errors": {filename: error}},
+                {"investigation_id": f"eq.{job_id}"},
+            )
+        except (httpx.HTTPError, ValueError) as caught:
+            logger.warning(
+                "Supabase validation error persistence failed for %s: %s",
+                job_id,
+                caught,
+            )
+
     def load_jobs(self) -> list[Job]:
         if not self.enabled:
             return []
@@ -93,6 +109,7 @@ class SupabaseRepository:
             messages = self._select("investigation_messages")
             events = self._select("investigation_events")
             artifacts = self._select("investigation_artifacts")
+            research_results = self._select("research_results")
         except (httpx.HTTPError, ValueError) as error:
             logger.warning("Supabase job hydration failed: %s", error)
             return []
@@ -144,6 +161,13 @@ class SupabaseRepository:
                 )
             )
             self._cache_structured_artifact(investigation_id, row)
+        for row in research_results:
+            errors = row.get("validation_errors")
+            if isinstance(errors, dict):
+                self._cache_validation_errors(
+                    str(row.get("investigation_id") or ""),
+                    errors,
+                )
         jobs: list[Job] = []
         for row in investigations:
             job_id = str(row["id"])
@@ -155,6 +179,8 @@ class SupabaseRepository:
                         "title": row["title"],
                         "objective": row["objective"],
                         "playbook": row["playbook"],
+                        "playbook_id": row.get("playbook_id"),
+                        "playbook_title": row.get("playbook_title"),
                         "status": row["status"],
                         "active_agent": row.get("active_agent"),
                         "active_stage": row.get("active_stage"),
@@ -238,6 +264,18 @@ class SupabaseRepository:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _cache_validation_errors(self, job_id: str, errors: dict[str, object]) -> None:
+        if not job_id or not errors:
+            return
+        path = settings.runs_dir / job_id / ".validation_errors.json"
+        if path.is_file():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({str(key): str(value) for key, value in errors.items()}, indent=2),
+            encoding="utf-8",
+        )
 
     def _upload(self, storage_path: str, path: Path, content_type: str) -> None:
         self._request(
@@ -326,6 +364,8 @@ class SupabaseRepository:
             "title": job.title,
             "objective": job.objective,
             "playbook": job.playbook,
+            "playbook_id": job.playbook_id,
+            "playbook_title": job.playbook_title,
             "status": job.status.value,
             "active_agent": job.active_agent.value if job.active_agent else None,
             "active_stage": job.active_stage,

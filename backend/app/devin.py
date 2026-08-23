@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Protocol
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -16,7 +16,14 @@ APP_ATTACHMENT = re.compile(
 
 
 class SessionClient(Protocol):
-    def create_session(self, prompt: str, title: str) -> dict[str, Any]: ...
+    def create_session(
+        self,
+        prompt: str,
+        title: str,
+        playbook_id: str | None = None,
+    ) -> dict[str, Any]: ...
+    def list_playbooks(self) -> list[dict[str, Any]]: ...
+    def get_playbook(self, playbook_id: str) -> dict[str, Any]: ...
     def get_session(self, session_id: str) -> dict[str, Any]: ...
     def send_message(self, session_id: str, message: str) -> None: ...
     def list_messages(self, session_id: str) -> list[dict[str, Any]]: ...
@@ -79,7 +86,12 @@ class DevinClient:
             return response.json()
         return response.content
 
-    def create_session(self, prompt: str, title: str) -> dict[str, Any]:
+    def create_session(
+        self,
+        prompt: str,
+        title: str,
+        playbook_id: str | None = None,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "prompt": prompt,
             "title": title[:120],
@@ -87,8 +99,9 @@ class DevinClient:
         }
         if self.snapshot_id:
             body["snapshot_id"] = self.snapshot_id
-        if self.playbook_id:
-            body["playbook_id"] = self.playbook_id
+        selected_playbook = playbook_id or self.playbook_id
+        if selected_playbook:
+            body["playbook_id"] = selected_playbook
         if self.repos:
             body["repos"] = self.repos
         try:
@@ -98,6 +111,29 @@ class DevinClient:
                 body.pop("repos", None)
                 return self._create(body)
             raise
+
+    def list_playbooks(self) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        after: str | None = None
+        while True:
+            params: dict[str, str | int] = {"first": 200}
+            if after:
+                params["after"] = after
+            data = self._request("GET", self._org("/playbooks"), params=params)
+            page = _as_items(data)
+            items.extend(page)
+            if not isinstance(data, dict) or not data.get("has_next_page"):
+                return items
+            next_cursor = data.get("end_cursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                return items
+            after = next_cursor
+
+    def get_playbook(self, playbook_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            self._org(f"/playbooks/{quote(playbook_id, safe='')}"),
+        )
 
     def _create(self, body: dict[str, Any]) -> dict[str, Any]:
         data = self._request("POST", self._org("/sessions"), json=body)

@@ -48,6 +48,8 @@ class JobStore:
         include_structure: bool,
         capabilities: list[ResearchCapability] | None = None,
         owner_id: str | None = None,
+        playbook_id: str | None = None,
+        playbook_title: str | None = None,
     ) -> Job:
         now = datetime.now(timezone.utc)
         job = Job(
@@ -55,6 +57,9 @@ class JobStore:
             owner_id=owner_id,
             title=title or _title_from(objective),
             objective=objective,
+            playbook=playbook_id or "protein-engineering-v1",
+            playbook_id=playbook_id,
+            playbook_title=playbook_title,
             status=JobStatus.queued,
             include_structure=include_structure,
             capabilities=resolve_capabilities(
