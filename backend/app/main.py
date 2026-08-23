@@ -88,7 +88,7 @@ def owned_job(job_id: str, user_id: str | None) -> Job:
 @app.get("/api/health")
 def health() -> dict[str, object]:
     missing = missing_devin_settings()
-    return {
+    payload: dict[str, object] = {
         "status": "ok" if not missing else "not_configured",
         "runtime": "devin-sandbox",
         "configured": not missing,
@@ -96,6 +96,11 @@ def health() -> dict[str, object]:
         "snapshot_configured": snapshot_configured(),
         "supabase_configured": supabase_configured(),
     }
+    supabase_health = supabase.persistence_health()
+    if supabase_health is not None:
+        payload["supabase_healthy"] = supabase_health["healthy"]
+        payload["supabase_last_failure"] = supabase_health["last_failure"]
+    return payload
 
 
 @app.get("/api/jobs", response_model=list[Job], response_model_exclude=JOB_PUBLIC)

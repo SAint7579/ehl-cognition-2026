@@ -484,6 +484,18 @@ export function App() {
             </button>
           ) : null}
         </header>
+        {health?.supabase_configured && health.supabase_healthy === false ? (
+          <div className="persistence-warning" role="alert">
+            <strong>Results are not being saved.</strong>
+            {health.supabase_last_failure ? (
+              <span>
+                {" "}
+                {health.supabase_last_failure.operation}:{" "}
+                {health.supabase_last_failure.message}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {error ? <div className="inline-error">{error}</div> : null}
         <div className="investigation-body">
           <InvestigationFlow

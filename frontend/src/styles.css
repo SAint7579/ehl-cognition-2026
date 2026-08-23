@@ -624,6 +624,19 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.persistence-warning {
+  flex: 0 0 auto;
+  padding: 8px 20px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-bottom: 1px solid #f4cdc6;
+  font-size: 11px;
+}
+
+.persistence-warning strong {
+  font-weight: 700;
+}
+
 .investigation-body {
   min-height: 0;
   flex: 1;

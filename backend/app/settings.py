@@ -67,6 +67,9 @@ class Settings(BaseModel):
     poll_interval_seconds: float = 0.5
     poll_timeout_seconds: float = env_float("DEVIN_POLL_TIMEOUT_SECONDS", 86400.0)
     poll_idle_timeout_seconds: float = env_float("DEVIN_IDLE_TIMEOUT_SECONDS", 5400.0)
+    supabase_health_cache_seconds: float = env_float(
+        "SUPABASE_HEALTH_CACHE_SECONDS", 5.0
+    )
     supabase_url: str = env_value("SUPABASE_URL").rstrip("/")
     supabase_service_role_key: str = env_value("SUPABASE_SERVICE_ROLE_KEY")
     supabase_artifact_bucket: str = (
