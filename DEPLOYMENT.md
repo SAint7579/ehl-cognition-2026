@@ -111,9 +111,9 @@ Do **not** use the FastAPI preset or add `[tool.vercel] entrypoint` in
 `pyproject.toml`. That would put the control room on a Vercel Function.
 
 1. Import the GitHub repository in Vercel.
-2. Either leave the repo root and use the committed `vercel.json` (Vite build
-   of `frontend/`), or set the Root Directory to `frontend` and the framework
-   to Vite.
+2. Set the Root Directory to `frontend` and the framework to Vite. The
+   committed `vercel.json` assumes that directory (do not also prefix
+   `frontend` in the install command).
 3. Add `VITE_API_BASE_URL` (the public Railway/API origin, no trailing slash).
 4. Deploy and add the generated Vercel URL to backend `CORS_ORIGINS`.
 5. Add a custom domain after the API and SSE flow pass the smoke tests.
