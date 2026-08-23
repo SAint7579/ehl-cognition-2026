@@ -309,16 +309,15 @@
 
 .investigation-graph-structure-trace polyline {
   fill: none;
-  stroke: var(--accent-strong);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2;
+  stroke-width: 1.8;
 }
 
 .investigation-graph-structure-trace circle {
-  fill: var(--warn);
+  fill: #be123c;
   stroke: var(--panel);
-  stroke-width: 1;
+  stroke-width: 1.2;
 }
 
 .investigation-graph-methods {

@@ -663,16 +663,24 @@ type BackbonePoint = {
   residue: number;
 };
 
+type CoordinatePoint = {
+  x: number;
+  y: number;
+  z: number;
+  residue: number;
+};
+
 type BackboneTrace = {
   points: BackbonePoint[];
   marks: BackbonePoint[];
 };
 
 const MAX_TRACE_POINTS = 80;
+const TRACE_SEGMENTS = 10;
 
 function parseBackboneTrace(pdbText: string | null, triad: ResidueAnnotation[]): BackboneTrace | null {
   if (!pdbText) return null;
-  const points: BackbonePoint[] = [];
+  const points: CoordinatePoint[] = [];
   const seenResidues = new Set<string>();
   let chain: string | null = null;
   for (const line of pdbText.split(/\r?\n/)) {
@@ -685,19 +693,35 @@ function parseBackboneTrace(pdbText: string | null, triad: ResidueAnnotation[]):
     const residue = Number.parseInt(line.slice(22, 26).trim(), 10);
     const x = Number.parseFloat(line.slice(30, 38).trim());
     const y = Number.parseFloat(line.slice(38, 46).trim());
-    if (!Number.isFinite(residue) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const z = Number.parseFloat(line.slice(46, 54).trim());
+    if (
+      !Number.isFinite(residue) ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(z)
+    ) continue;
     const residueKey = `${pointChain}:${residue}`;
     if (seenResidues.has(residueKey)) continue;
     seenResidues.add(residueKey);
-    points.push({ x, y, residue });
+    points.push({ x, y, z, residue });
   }
   if (points.length < 2) return null;
 
-  const sampled = downsamplePoints(points, MAX_TRACE_POINTS);
-  const minX = Math.min(...sampled.map((point) => point.x));
-  const maxX = Math.max(...sampled.map((point) => point.x));
-  const minY = Math.min(...sampled.map((point) => point.y));
-  const maxY = Math.max(...sampled.map((point) => point.y));
+  const centred = centrePoints(points);
+  const firstAxis = principalAxis(covarianceMatrix(centred));
+  const secondAxis = principalAxis(
+    subtractOuterProduct(covarianceMatrix(centred), firstAxis),
+  );
+  const projected = points.map((point, index) => ({
+    x: centred[index][0] * firstAxis[0] + centred[index][1] * firstAxis[1] + centred[index][2] * firstAxis[2],
+    y: centred[index][0] * secondAxis[0] + centred[index][1] * secondAxis[1] + centred[index][2] * secondAxis[2],
+    residue: point.residue,
+  }));
+  const sampled = downsamplePoints(projected, MAX_TRACE_POINTS);
+  const minX = Math.min(...projected.map((point) => point.x));
+  const maxX = Math.max(...projected.map((point) => point.x));
+  const minY = Math.min(...projected.map((point) => point.y));
+  const maxY = Math.max(...projected.map((point) => point.y));
   const spanX = maxX - minX || 1;
   const spanY = maxY - minY || 1;
   const normalise = (point: BackbonePoint): BackbonePoint => ({
@@ -707,8 +731,62 @@ function parseBackboneTrace(pdbText: string | null, triad: ResidueAnnotation[]):
   });
   const normalised = sampled.map(normalise);
   const triadResidues = new Set(triad.map((row) => row.author_residue));
-  const marks = normalised.filter((point) => triadResidues.has(point.residue));
+  const marks = projected.filter((point) => triadResidues.has(point.residue)).map(normalise);
   return { points: normalised, marks };
+}
+
+type Vector3 = [number, number, number];
+type Matrix3 = [Vector3, Vector3, Vector3];
+
+function centrePoints(points: CoordinatePoint[]): Vector3[] {
+  const mean: Vector3 = [
+    points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    points.reduce((sum, point) => sum + point.y, 0) / points.length,
+    points.reduce((sum, point) => sum + point.z, 0) / points.length,
+  ];
+  return points.map((point) => [point.x - mean[0], point.y - mean[1], point.z - mean[2]]);
+}
+
+function covarianceMatrix(points: Vector3[]): Matrix3 {
+  const matrix: Matrix3 = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  for (const point of points) {
+    for (let row = 0; row < 3; row += 1) {
+      for (let column = 0; column < 3; column += 1) {
+        matrix[row][column] += point[row] * point[column];
+      }
+    }
+  }
+  const divisor = Math.max(1, points.length - 1);
+  return matrix.map((row) => row.map((value) => value / divisor)) as Matrix3;
+}
+
+function principalAxis(matrix: Matrix3): Vector3 {
+  let axis: Vector3 = [1, 1, 1];
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    const next: Vector3 = [
+      matrix[0][0] * axis[0] + matrix[0][1] * axis[1] + matrix[0][2] * axis[2],
+      matrix[1][0] * axis[0] + matrix[1][1] * axis[1] + matrix[1][2] * axis[2],
+      matrix[2][0] * axis[0] + matrix[2][1] * axis[1] + matrix[2][2] * axis[2],
+    ];
+    const length = Math.hypot(...next);
+    if (!length) return axis;
+    axis = next.map((value) => value / length) as Vector3;
+  }
+  return axis;
+}
+
+function subtractOuterProduct(matrix: Matrix3, axis: Vector3): Matrix3 {
+  const eigenvalue =
+    axis[0] * (matrix[0][0] * axis[0] + matrix[0][1] * axis[1] + matrix[0][2] * axis[2]) +
+    axis[1] * (matrix[1][0] * axis[0] + matrix[1][1] * axis[1] + matrix[1][2] * axis[2]) +
+    axis[2] * (matrix[2][0] * axis[0] + matrix[2][1] * axis[1] + matrix[2][2] * axis[2]);
+  return matrix.map((row, rowIndex) =>
+    row.map((value, columnIndex) => value - eigenvalue * axis[rowIndex] * axis[columnIndex]),
+  ) as Matrix3;
 }
 
 function downsamplePoints(points: BackbonePoint[], limit: number): BackbonePoint[] {
@@ -720,14 +798,23 @@ function downsamplePoints(points: BackbonePoint[], limit: number): BackbonePoint
 }
 
 function StructureTrace({ trace }: { trace: BackboneTrace }) {
-  const points = trace.points.map((point) => `${point.x},${point.y}`).join(" ");
+  const segmentCount = Math.min(TRACE_SEGMENTS, trace.points.length - 1);
   return (
     <svg
       className="investigation-graph-structure-trace"
       viewBox="0 0 200 48"
       aria-hidden="true"
     >
-      <polyline points={points} />
+      {Array.from({ length: segmentCount }, (_, index) => {
+        const start = Math.floor((index * (trace.points.length - 1)) / segmentCount);
+        const end = Math.floor(((index + 1) * (trace.points.length - 1)) / segmentCount);
+        const points = trace.points
+          .slice(start, end + 1)
+          .map((point) => `${point.x},${point.y}`)
+          .join(" ");
+        const hue = 215 - (index / Math.max(1, segmentCount - 1)) * 185;
+        return <polyline key={`${start}-${end}`} points={points} style={{ stroke: `hsl(${hue} 72% 48%)` }} />;
+      })}
       {trace.marks.map((point) => (
         <circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="2.5" />
       ))}
