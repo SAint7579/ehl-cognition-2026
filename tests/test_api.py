@@ -98,6 +98,7 @@ def _install(monkeypatch, tmp_path: Path) -> FakeDevin:
     settings.runs_dir = tmp_path
     settings.poll_interval_seconds = 0
     settings.poll_timeout_seconds = 5
+    monkeypatch.delenv("DEVIN_PLAYBOOK_ID", raising=False)
     live_store._jobs.clear()
     fake = FakeDevin()
     monkeypatch.setattr("backend.app.executor.get_client", lambda: fake)
@@ -117,6 +118,8 @@ def test_job_lifecycle_and_follow_up(monkeypatch, tmp_path: Path) -> None:
     job = client.get(f"/api/jobs/{job_id}").json()
     assert job["status"] == "complete"
     assert job["playbook"] == "protein-engineering-v1"
+    assert job["playbook_id"] is None
+    assert fake.selected_playbook_id is None
     assert job["devin_session_id"] == "devin-test"
     assert job["session_url"] == fake.url
     speakers = [message["speaker"] for message in job["messages"]]
@@ -126,6 +129,7 @@ def test_job_lifecycle_and_follow_up(monkeypatch, tmp_path: Path) -> None:
     assert "system" not in speakers
     assert "sandbox" in fake.prompts[0].lower()
     assert "bioctl investigate" in fake.prompts[0]
+    assert "protein_engineering_v1.md" in fake.prompts[0]
     assert "do not assume" in fake.prompts[0].lower()
     assert "--target fixtures/target_ispetase.fasta" not in fake.prompts[0].split("Scientist's request:")[0]
     names = {item["filename"] for item in job["artifacts"]}
@@ -175,6 +179,7 @@ def test_protocol_discovery_selection_snapshot_and_structured_synthesis(
             "id": "pb-lab",
             "title": "Lab investigation",
             "has_structured_output_schema": True,
+            "is_default": False,
         }
     ]
     created = client.post(
@@ -246,6 +251,46 @@ def test_empty_protocol_body_skips_snapshot_and_records_error(
     assert not (tmp_path / missing_job["id"] / "protocol.md").exists()
     workspace = client.get(f"/api/jobs/{missing_job['id']}/research")
     assert "protocol.md" in workspace.json()["validation_errors"]
+
+
+def test_configured_default_protocol_is_selected_and_recorded(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from backend.app import main
+
+    fake = _install(monkeypatch, tmp_path)
+    fake.playbooks = [
+        {
+            "playbook_id": "pb-default",
+            "title": "End-to-end laboratory investigation",
+            "body": "# Default laboratory protocol",
+            "structured_output_schema": {"type": "object"},
+        },
+        {
+            "playbook_id": "pb-specialized",
+            "title": "Specialized protocol",
+            "body": "# Specialized protocol",
+        },
+    ]
+    monkeypatch.setenv("DEVIN_PLAYBOOK_ID", "pb-default")
+    main._protocol_cache = None
+    client = TestClient(app)
+    protocols = client.get("/api/protocols")
+    assert protocols.status_code == 200
+    assert protocols.json()[0]["is_default"] is True
+    assert protocols.json()[1]["is_default"] is False
+
+    created = client.post(
+        "/api/jobs",
+        json={"objective": "Investigate enzyme stability."},
+    )
+    assert created.status_code == 200
+    job = created.json()
+    assert job["playbook_id"] == "pb-default"
+    assert job["playbook_title"] == "End-to-end laboratory investigation"
+    assert fake.selected_playbook_id == "pb-default"
+    assert (tmp_path / job["id"] / "protocol.md").read_text() == fake.playbooks[0]["body"]
 
 
 def test_unknown_protocol_is_rejected_and_invalid_output_is_reported(
