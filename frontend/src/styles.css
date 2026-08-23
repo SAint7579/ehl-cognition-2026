@@ -921,8 +921,12 @@ textarea:focus-visible {
 }
 
 .evidence-top {
-  padding: 17px 18px 14px;
+  padding: 10px 18px;
   background: rgba(255, 255, 255, 0.7);
+}
+
+.evidence-top.is-expanded {
+  padding: 17px 18px 14px;
 }
 
 .evidence-top h2 {
@@ -930,6 +934,13 @@ textarea:focus-visible {
   font-size: 16px;
   line-height: 1.28;
   letter-spacing: -0.025em;
+}
+
+.evidence-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
 }
 
 .status-badge {
@@ -957,28 +968,17 @@ textarea:focus-visible {
 .evidence-objective {
   max-width: 760px;
   margin: 8px 0 0;
-  overflow: hidden;
   color: #40504a;
   font-size: 11px;
   line-height: 1.45;
 }
 
-.evidence-objective:not(.is-expanded) {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.evidence-objective-wrap {
-  position: relative;
-}
-
-.evidence-objective-toggle {
-  margin-top: 5px;
-  padding: 0;
-  border: 0;
+.evidence-brief-toggle {
+  padding: 4px 7px;
+  border: 1px solid #c8ddd6;
+  border-radius: 6px;
   color: var(--accent-strong);
-  background: transparent;
+  background: #f5faf8;
   font-size: 10px;
   font-weight: 650;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArtifactImage } from "./Artifact";
 import type { EvidenceTask, EvidenceTaskId } from "./evidence";
 import {
@@ -9,7 +9,14 @@ import {
   matchingResearchTask,
   visibleEvidenceTasks,
 } from "./evidence";
-import type { ArtifactInfo, ConservationColumn, Job, ResearchTask, ResearchWorkspace } from "./types";
+import type {
+  ArtifactInfo,
+  ConservationColumn,
+  FinalResult,
+  Job,
+  ResearchTask,
+  ResearchWorkspace,
+} from "./types";
 import "./investigation-graph.css";
 
 type GraphStatus = "RUNNING" | "COMPLETED" | "FAILED" | "PLANNED";
@@ -27,12 +34,6 @@ type GraphNode = {
   status: GraphStatus;
   column: number;
   lane: number;
-};
-
-type GraphTable = {
-  artifact: ArtifactInfo;
-  filename: string;
-  rows: string[][];
 };
 
 type GraphEdge = {
@@ -86,7 +87,7 @@ export function InvestigationGraph({
   working,
   research,
   columns,
-  tables,
+  result,
   selected,
   onSelect,
 }: {
@@ -94,7 +95,7 @@ export function InvestigationGraph({
   working: boolean;
   research: ResearchWorkspace | null;
   columns: ConservationColumn[];
-  tables: GraphTable[];
+  result: FinalResult | null;
   selected: EvidenceTaskId;
   onSelect: (task: EvidenceTaskId) => void;
 }) {
@@ -411,17 +412,13 @@ export function InvestigationGraph({
                   </span>
                   <strong>{node.title}</strong>
                   <span className="investigation-graph-body">
-                    {getThumbnail(job.id, node, columns, research, tables) ?? (node.summary ? (
-                      node.summary
-                    ) : node.methods.length ? (
-                      <span className="investigation-graph-methods">
-                        {node.methods.slice(0, 3).map((method) => (
-                          <em key={method}>{method}</em>
-                        ))}
-                      </span>
-                    ) : (
-                      "No output recorded yet"
-                    ))}
+                    <NodeBody
+                      jobId={job.id}
+                      node={node}
+                      columns={columns}
+                      research={research}
+                      result={result}
+                    />
                   </span>
                   <span className="investigation-graph-footer">
                     {node.outputs > 0 ? (
@@ -583,35 +580,77 @@ function nodeY(node: GraphNode): number {
   return PAD_Y + node.lane * ROW_HEIGHT;
 }
 
-function getThumbnail(
-  jobId: string,
-  node: GraphNode,
-  columns: ConservationColumn[],
-  research: ResearchWorkspace | null,
-  tables: GraphTable[],
-): ReactNode {
+function NodeBody({
+  jobId,
+  node,
+  columns,
+  research,
+  result,
+}: {
+  jobId: string;
+  node: GraphNode;
+  columns: ConservationColumn[];
+  research: ResearchWorkspace | null;
+  result: FinalResult | null;
+}) {
   const image = node.artifacts.find((artifact) => /\.(png|jpe?g|webp|svg)$/i.test(artifact.filename));
-  if (image) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [image?.filename]);
+
+  if (image && !imageFailed) {
     return (
       <span className="investigation-graph-thumb">
-        <ArtifactImage jobId={jobId} filename={image.filename} alt="" />
+        <ArtifactImage
+          jobId={jobId}
+          filename={image.filename}
+          alt=""
+          onError={() => setImageFailed(true)}
+        />
       </span>
     );
   }
-  const values = node.id === "conservation"
-    ? columns.flatMap((column) =>
-        typeof column.conservation === "number" && Number.isFinite(column.conservation)
-          ? [column.conservation]
-          : [],
-      )
-    : node.id === "simulation"
-      ? simulationValues(research)
-      : tableValues(node, tables);
-  return values.length >= 2 ? (
-    <span className="investigation-graph-thumb">
-      <Sparkline values={values} />
-    </span>
-  ) : null;
+
+  const values = sparklineValues(node, columns, research, result);
+  if (values.length >= 2) {
+    return (
+      <span className="investigation-graph-thumb">
+        <Sparkline values={values} />
+      </span>
+    );
+  }
+
+  if (node.summary) return node.summary;
+  if (node.methods.length) {
+    return (
+      <span className="investigation-graph-methods">
+        {node.methods.slice(0, 3).map((method) => (
+          <em key={method}>{method}</em>
+        ))}
+      </span>
+    );
+  }
+  return "No output recorded yet";
+}
+
+function sparklineValues(
+  node: GraphNode,
+  columns: ConservationColumn[],
+  research: ResearchWorkspace | null,
+  result: FinalResult | null,
+): number[] {
+  if (node.id === "conservation") {
+    return columns.flatMap((column) =>
+      typeof column.conservation === "number" && Number.isFinite(column.conservation)
+        ? [column.conservation]
+        : [],
+    );
+  }
+  if (node.id === "simulation") return simulationValues(research);
+  if (node.id === "rank") return rankingValues(result);
+  return [];
 }
 
 function simulationValues(research: ResearchWorkspace | null): number[] {
@@ -625,18 +664,11 @@ function simulationValues(research: ResearchWorkspace | null): number[] {
   );
 }
 
-function tableValues(node: GraphNode, tables: GraphTable[]): number[] {
-  return tables
-    .filter((table) => node.artifacts.some((artifact) => artifact.filename === table.filename))
-    .flatMap((table) =>
-      table.rows.slice(1).flatMap((row) =>
-        row.flatMap((cell) => {
-          if (!cell.trim()) return [];
-          const value = Number(cell);
-          return Number.isFinite(value) ? [value] : [];
-        }),
-      ),
-    );
+function rankingValues(result: FinalResult | null): number[] {
+  return [
+    ...(result?.shortlists?.activity?.sites ?? []),
+    ...(result?.shortlists?.stability?.sites ?? []),
+  ].flatMap((site) => (Number.isFinite(site.score) ? [site.score] : []));
 }
 
 function Sparkline({ values }: { values: number[] }) {

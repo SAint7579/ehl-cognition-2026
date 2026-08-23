@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ArtifactImage, ArtifactLink } from "./Artifact";
 import {
   EVIDENCE_TASKS,
@@ -71,59 +71,44 @@ export function EvidenceWorkspace({
   working: boolean;
 }) {
   const task = tasks.find((item) => item.id === selected) ?? null;
-  const objectiveRef = useRef<HTMLParagraphElement>(null);
-  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const [objectiveOverflows, setObjectiveOverflows] = useState(false);
-
-  useLayoutEffect(() => {
-    setObjectiveExpanded(false);
-  }, [job.id, job.objective]);
-
-  useLayoutEffect(() => {
-    if (objectiveExpanded) return;
-    const element = objectiveRef.current;
-    if (element) setObjectiveOverflows(element.scrollHeight > element.clientHeight + 1);
-  }, [job.objective, objectiveExpanded]);
+  const [briefExpanded, setBriefExpanded] = useState(false);
 
   return (
     <section className="evidence">
-      <header className="evidence-top">
+      <header className={`evidence-top ${briefExpanded ? "is-expanded" : ""}`}>
         <div className="evidence-title-row">
           <div>
             <p className="eyebrow">Research brief</p>
             <h2>{job.title}</h2>
           </div>
-          <StatusBadge job={job} working={working} />
-        </div>
-        <div className="evidence-objective-wrap">
-          <p
-            ref={objectiveRef}
-            className={`evidence-objective ${objectiveExpanded ? "is-expanded" : ""}`}
-          >
-            {job.objective}
-          </p>
-          {objectiveOverflows ? (
+          <div className="evidence-title-actions">
+            <StatusBadge job={job} working={working} />
             <button
               type="button"
-              className="evidence-objective-toggle"
-              onClick={() => setObjectiveExpanded((expanded) => !expanded)}
-              aria-expanded={objectiveExpanded}
+              className="evidence-brief-toggle"
+              onClick={() => setBriefExpanded((expanded) => !expanded)}
+              aria-expanded={briefExpanded}
             >
-              {objectiveExpanded ? "Show less" : "Show more"}
+              {briefExpanded ? "Hide brief" : "Show brief"}
             </button>
-          ) : null}
-        </div>
-        <div className="evidence-stats">
-          <span>{visibleEvidenceTasks(tasks, research).length} tasks</span>
-          <span>{job.artifacts.length} saved outputs</span>
-          <span>Updated {formatDateTime(job.updated_at)}</span>
-        </div>
-        {job.capabilities.length ? (
-          <div className="capability-list" aria-label="Research capabilities">
-            {job.capabilities.map((capability) => (
-              <span key={capability}>{labelCapability(capability)}</span>
-            ))}
           </div>
+        </div>
+        {briefExpanded ? (
+          <>
+            <p className="evidence-objective">{job.objective}</p>
+            <div className="evidence-stats">
+              <span>{visibleEvidenceTasks(tasks, research).length} tasks</span>
+              <span>{job.artifacts.length} saved outputs</span>
+              <span>Updated {formatDateTime(job.updated_at)}</span>
+            </div>
+            {job.capabilities.length ? (
+              <div className="capability-list" aria-label="Research capabilities">
+                {job.capabilities.map((capability) => (
+                  <span key={capability}>{labelCapability(capability)}</span>
+                ))}
+              </div>
+            ) : null}
+          </>
         ) : null}
       </header>
       <div className="results">
@@ -285,7 +270,6 @@ function TaskEvidence({
       {task.id === "simulation" && research?.simulations ? (
         <SimulationCard simulations={research.simulations} />
       ) : null}
-      <OutputManifest jobId={job.id} task={task} />
       {task.id === "homolog-search" ? <HomologCard hits={homologs} /> : null}
       {task.id === "conservation" ? <ConservationCard columns={columns} /> : null}
       {task.id === "structure" ? (
@@ -317,6 +301,7 @@ function TaskEvidence({
           </p>
         </div>
       ) : null}
+      <OutputManifest jobId={job.id} task={task} />
     </section>
   );
 }

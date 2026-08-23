@@ -500,7 +500,7 @@ export function App() {
             working={working}
             research={research}
             columns={columns}
-            tables={tables}
+            result={result}
             selected={selectedEvidenceTask}
             onSelect={setSelectedEvidenceTask}
           />
