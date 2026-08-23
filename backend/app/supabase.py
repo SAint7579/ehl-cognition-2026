@@ -320,7 +320,7 @@ class SupabaseRepository:
                 bearer=access_token,
             )
         except httpx.HTTPError as error:
-            self._record_failure("auth user verification", error)
+            logger.debug("Supabase auth user verification failed: %s", error)
             return None
         payload = response.json()
         user_id = payload.get("id") if isinstance(payload, dict) else None
