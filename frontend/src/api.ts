@@ -4,12 +4,20 @@ import type {
   Health,
   HomologHit,
   Job,
+  JsonValue,
   ResidueAnnotation,
+  ResearchWorkspace,
   StructureSummary,
 } from "./types";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}
+
 export function getHealth(): Promise<Health> {
-  return fetch("/api/health").then((r) => parse<Health>(r));
+  return fetch(apiUrl("/api/health")).then((r) => parse<Health>(r));
 }
 
 async function parse<T>(response: Response): Promise<T> {
@@ -21,11 +29,11 @@ async function parse<T>(response: Response): Promise<T> {
 }
 
 export function listJobs(): Promise<Job[]> {
-  return fetch("/api/jobs").then((r) => parse<Job[]>(r));
+  return fetch(apiUrl("/api/jobs")).then((r) => parse<Job[]>(r));
 }
 
 export function createJob(objective: string): Promise<Job> {
-  return fetch("/api/jobs", {
+  return fetch(apiUrl("/api/jobs"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ objective, include_structure: true }),
@@ -33,15 +41,19 @@ export function createJob(objective: string): Promise<Job> {
 }
 
 export function harvestJob(id: string): Promise<Job> {
-  return fetch(`/api/jobs/${id}/harvest`, { method: "POST" }).then((r) => parse<Job>(r));
+  return fetch(apiUrl(`/api/jobs/${id}/harvest`), { method: "POST" }).then((r) => parse<Job>(r));
 }
 
 export function getJob(id: string): Promise<Job> {
-  return fetch(`/api/jobs/${id}`).then((r) => parse<Job>(r));
+  return fetch(apiUrl(`/api/jobs/${id}`)).then((r) => parse<Job>(r));
+}
+
+export function getResearchWorkspace(id: string): Promise<ResearchWorkspace> {
+  return fetch(apiUrl(`/api/jobs/${id}/research`)).then((r) => parse<ResearchWorkspace>(r));
 }
 
 export function watchJob(id: string, onJob: (job: Job) => void): () => void {
-  const source = new EventSource(`/api/jobs/${id}/events`);
+  const source = new EventSource(apiUrl(`/api/jobs/${id}/events`));
   let closed = false;
   let fallback: number | undefined;
   const apply = (job: Job) => {
@@ -74,7 +86,7 @@ export function watchJob(id: string, onJob: (job: Job) => void): () => void {
 }
 
 export function sendMessage(id: string, body: string): Promise<Job> {
-  return fetch(`/api/jobs/${id}/messages`, {
+  return fetch(apiUrl(`/api/jobs/${id}/messages`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ body }),
@@ -82,10 +94,14 @@ export function sendMessage(id: string, body: string): Promise<Job> {
 }
 
 export function loadJson<T>(jobId: string, filename: string): Promise<T | null> {
-  return fetch(`/api/jobs/${jobId}/artifacts/${filename}`).then((response) => {
+  return fetch(apiUrl(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`)).then((response) => {
     if (response.status === 404) return null;
     return parse<T>(response);
   });
+}
+
+export function loadStructuredArtifact(jobId: string, filename: string): Promise<JsonValue | null> {
+  return loadJson<JsonValue>(jobId, filename);
 }
 
 export function loadHomologs(jobId: string): Promise<HomologHit[]> {
@@ -116,7 +132,7 @@ export function loadFinalResult(jobId: string): Promise<FinalResult | null> {
 }
 
 export function loadStructurePdb(jobId: string, filename = "structure.pdb"): Promise<string | null> {
-  return fetch(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`).then((response) => {
+  return fetch(artifactUrl(jobId, filename)).then((response) => {
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(response.statusText);
     return response.text();
@@ -124,7 +140,7 @@ export function loadStructurePdb(jobId: string, filename = "structure.pdb"): Pro
 }
 
 export function artifactUrl(jobId: string, filename: string): string {
-  return `/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`;
+  return apiUrl(`/api/jobs/${jobId}/artifacts/${encodeURIComponent(filename)}`);
 }
 
 export function loadText(jobId: string, filename: string): Promise<string | null> {
