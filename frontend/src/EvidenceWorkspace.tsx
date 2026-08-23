@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { ArtifactImage, ArtifactLink } from "./Artifact";
 import {
   EVIDENCE_TASKS,
+  labelCapability,
   outputPresentation,
+  visibleEvidenceTasks,
 } from "./evidence";
 import type {
   EvidenceTask,
@@ -112,7 +114,7 @@ export function EvidenceWorkspace({
           ) : null}
         </div>
         <div className="evidence-stats">
-          <span>{tasks.length} tasks</span>
+          <span>{visibleEvidenceTasks(tasks, research).length} tasks</span>
           <span>{job.artifacts.length} saved outputs</span>
           <span>Updated {formatDateTime(job.updated_at)}</span>
         </div>
@@ -129,11 +131,9 @@ export function EvidenceWorkspace({
         {selected === "overview" || !task ? (
           <TaskOverview
             job={job}
-            tasks={tasks}
             research={research}
             structuredArtifacts={structuredArtifacts}
             onSelect={onSelect}
-            working={working}
           />
         ) : (
           <TaskEvidence
@@ -191,20 +191,15 @@ function StatusBadge({ job, working }: { job: Job; working: boolean }) {
 
 function TaskOverview({
   job,
-  tasks,
   research,
   structuredArtifacts,
   onSelect,
-  working,
 }: {
   job: Job;
-  tasks: EvidenceTask[];
   research: ResearchWorkspace | null;
   structuredArtifacts: StructuredArtifact[];
   onSelect: (task: EvidenceTaskId) => void;
-  working: boolean;
 }) {
-  const savedOutputs = tasks.reduce((count, task) => count + task.artifacts.length, 0);
   const fallback = finalResultArtifact(structuredArtifacts);
   return (
     <section className="task-overview" aria-label="Investigation task outputs">
@@ -228,34 +223,6 @@ function TaskOverview({
       ) : fallback ? (
         <FinalResultFallback artifact={fallback} onOpen={() => onSelect("synthesis")} />
       ) : null}
-      <div className="task-overview-heading">
-        <div>
-          <p className="eyebrow">Investigation map</p>
-          <h3>Question to evidence, task by task</h3>
-        </div>
-        <span>{working ? "Updating live" : `${savedOutputs} outputs retained`}</span>
-      </div>
-      <div className="task-summary-list">
-        {tasks.map((task, index) => (
-          <button type="button" className="task-summary-card" onClick={() => onSelect(task.id)} key={task.id}>
-            <span className="task-number">{String(index + 1).padStart(2, "0")}</span>
-            <span className="task-summary-copy">
-              <strong>{task.title}</strong>
-              <p>{task.purpose}</p>
-              {task.summary ? <blockquote>{task.summary}</blockquote> : null}
-              <span className="task-output-count">
-                {task.artifacts.length
-                  ? `${task.artifacts.length} saved output${task.artifacts.length === 1 ? "" : "s"}`
-                  : working
-                    ? "Waiting for output"
-                    : "Context recorded"}
-                {task.updatedAt ? ` · ${formatDateTime(task.updatedAt)}` : ""}
-              </span>
-            </span>
-            <span className="task-open" aria-hidden="true">→</span>
-          </button>
-        ))}
-      </div>
     </section>
   );
 }
@@ -1017,10 +984,6 @@ function formatDateTime(value: string): string {
         hour: "2-digit",
         minute: "2-digit",
       });
-}
-
-function labelCapability(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function friendlyError(error: string): string {

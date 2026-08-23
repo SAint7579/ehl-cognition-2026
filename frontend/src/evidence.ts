@@ -1,5 +1,5 @@
 import { visibleMessages } from "./chat";
-import type { ArtifactInfo, Job } from "./types";
+import type { ArtifactInfo, Job, ResearchTask, ResearchWorkspace } from "./types";
 
 export type EvidenceTaskId =
   | "overview"
@@ -27,6 +27,34 @@ export type EvidenceTask = EvidenceTaskDefinition & {
   artifacts: ArtifactInfo[];
   summary: string | null;
   updatedAt: string | null;
+};
+
+export const EVIDENCE_TASK_CAPABILITIES: Record<Exclude<EvidenceTaskId, "overview">, string> = {
+  plan: "plan",
+  literature: "literature-search",
+  "homolog-search": "homolog-search",
+  conservation: "conservation-analysis",
+  structure: "structure-analysis",
+  analysis: "data-analysis",
+  simulation: "molecular-simulation",
+  rank: "candidate-ranking",
+  synthesis: "research-synthesis",
+  "follow-up": "follow-up",
+  other: "other",
+};
+
+const PLAN_CAPABILITY_MATCHES: Record<Exclude<EvidenceTaskId, "overview">, string[]> = {
+  plan: ["plan", "setup"],
+  literature: ["literature", "database", "retrieval"],
+  "homolog-search": ["homolog", "sequence", "alignment"],
+  conservation: ["conservation", "evolution"],
+  structure: ["structure", "spatial"],
+  analysis: ["analysis", "data"],
+  simulation: ["simulation", "docking", "molecular"],
+  rank: ["rank", "candidate", "shortlist"],
+  synthesis: ["synthesis", "report"],
+  "follow-up": ["follow", "answer"],
+  other: ["other", "sandbox"],
 };
 
 export const EVIDENCE_TASKS: EvidenceTaskDefinition[] = [
@@ -152,6 +180,39 @@ export function buildEvidenceTasks(job: Job): EvidenceTask[] {
   }).filter(
     (task) => task.id !== "other" || task.artifacts.length > 0 || Boolean(task.summary),
   );
+}
+
+export function matchingResearchTask(
+  task: EvidenceTask,
+  research: ResearchWorkspace | null,
+): ResearchTask | undefined {
+  return (research?.plan?.tasks ?? []).find((candidate) => {
+    if (
+      candidate.output_files.some((file) =>
+        task.artifacts.some((artifact) => artifact.filename === file),
+      )
+    ) {
+      return true;
+    }
+    const capability = candidate.capability.toLowerCase();
+    return PLAN_CAPABILITY_MATCHES[task.id].some((term) => capability.includes(term));
+  });
+}
+
+export function visibleEvidenceTasks(
+  tasks: EvidenceTask[],
+  research: ResearchWorkspace | null,
+): EvidenceTask[] {
+  return tasks.filter(
+    (task) =>
+      task.artifacts.length > 0 ||
+      Boolean(task.summary) ||
+      Boolean(matchingResearchTask(task, research)),
+  );
+}
+
+export function labelCapability(value: string): string {
+  return value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function evidenceTaskForStage(stage: string): EvidenceTaskId {

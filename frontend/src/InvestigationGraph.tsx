@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArtifactImage } from "./Artifact";
 import type { EvidenceTask, EvidenceTaskId } from "./evidence";
-import { buildEvidenceTasks, evidenceTaskForStage } from "./evidence";
-import type { Job, ResearchTask, ResearchWorkspace } from "./types";
+import {
+  buildEvidenceTasks,
+  EVIDENCE_TASK_CAPABILITIES,
+  evidenceTaskForStage,
+  labelCapability,
+  matchingResearchTask,
+  visibleEvidenceTasks,
+} from "./evidence";
+import type { ArtifactInfo, ConservationColumn, Job, ResearchTask, ResearchWorkspace } from "./types";
 import "./investigation-graph.css";
 
 type GraphStatus = "RUNNING" | "COMPLETED" | "FAILED" | "PLANNED";
@@ -14,10 +22,17 @@ type GraphNode = {
   summary: string | null;
   methods: string[];
   outputs: number;
+  artifacts: ArtifactInfo[];
   updatedAt: string | null;
   status: GraphStatus;
   column: number;
   lane: number;
+};
+
+type GraphTable = {
+  artifact: ArtifactInfo;
+  filename: string;
+  rows: string[][];
 };
 
 type GraphEdge = {
@@ -35,7 +50,7 @@ const NODE_HEIGHT = 150;
 const COLUMN_WIDTH = 264;
 const ROW_HEIGHT = 178;
 const PAD_X = 34;
-const PAD_Y = 46;
+const PAD_Y = 30;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 1.65;
 
@@ -59,20 +74,6 @@ const DEPENDENCIES: Record<EvidenceTaskId, { column: number; parents: EvidenceTa
   other: { column: 6, parents: ["plan"] },
 };
 
-const PLAN_CAPABILITY_MATCHES: Record<Exclude<EvidenceTaskId, "overview">, string[]> = {
-  plan: ["plan", "setup"],
-  literature: ["literature", "database", "retrieval"],
-  "homolog-search": ["homolog", "sequence", "alignment"],
-  conservation: ["conservation", "evolution"],
-  structure: ["structure", "spatial"],
-  analysis: ["analysis", "data"],
-  simulation: ["simulation", "docking", "molecular"],
-  rank: ["rank", "candidate", "shortlist"],
-  synthesis: ["synthesis", "report"],
-  "follow-up": ["follow", "answer"],
-  other: ["other", "sandbox"],
-};
-
 const STATUS_LABEL: Record<GraphStatus, string> = {
   RUNNING: "Running",
   COMPLETED: "Completed",
@@ -84,12 +85,16 @@ export function InvestigationGraph({
   job,
   working,
   research,
+  columns,
+  tables,
   selected,
   onSelect,
 }: {
   job: Job;
   working: boolean;
   research: ResearchWorkspace | null;
+  columns: ConservationColumn[];
+  tables: GraphTable[];
   selected: EvidenceTaskId;
   onSelect: (task: EvidenceTaskId) => void;
 }) {
@@ -111,10 +116,18 @@ export function InvestigationGraph({
   const maxColumn = Math.max(0, ...nodes.map((node) => node.column));
   const width = PAD_X * 2 + maxColumn * COLUMN_WIDTH + NODE_WIDTH;
   const height = PAD_Y * 2 + maxLane * ROW_HEIGHT + NODE_HEIGHT + 24;
+  const nodeSetKey = nodes.map((node) => node.id).join("|");
+  const columnLabelTops = new Map<number, number>();
+  for (const node of nodes) {
+    const top = columnLabelTops.get(node.column);
+    const nodeTop = nodeY(node);
+    if (top == null || nodeTop < top) columnLabelTops.set(node.column, nodeTop);
+  }
 
   const [zoom, setZoom] = useState(1);
   const [followLive, setFollowLive] = useState(true);
   const [panning, setPanning] = useState(false);
+  const autoFitRef = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(1);
   const anchorRef = useRef<{ cx: number; cy: number; ax: number; ay: number } | null>(null);
@@ -124,6 +137,7 @@ export function InvestigationGraph({
   const nodeRefs = useRef(new Map<EvidenceTaskId, HTMLButtonElement>());
 
   const applyZoom = useCallback((next: number, clientX?: number, clientY?: number) => {
+    autoFitRef.current = false;
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
     const element = scrollRef.current;
     if (element) {
@@ -173,6 +187,25 @@ export function InvestigationGraph({
     });
   }, [zoom]);
 
+  const fitToView = useCallback(() => {
+    autoFitRef.current = true;
+    const element = scrollRef.current;
+    if (!element) return;
+    const scale = Math.min(
+      (element.clientWidth - 24) / width,
+      (element.clientHeight - 24) / height,
+      1,
+    );
+    anchorRef.current = null;
+    element.scrollLeft = 0;
+    element.scrollTop = 0;
+    setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale)));
+  }, [height, width]);
+
+  useLayoutEffect(() => {
+    if (autoFitRef.current) fitToView();
+  }, [fitToView, nodeSetKey]);
+
   useEffect(() => {
     if (!followLive || !activeId || !survivingIds.has(activeId)) return;
     onSelect(activeId);
@@ -182,18 +215,6 @@ export function InvestigationGraph({
   useEffect(() => {
     if (!survivingIds.has(selected)) onSelect("overview");
   }, [onSelect, selected, survivingIds]);
-
-  const fitToView = useCallback(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const scale = Math.min(
-      (element.clientWidth - 24) / width,
-      (element.clientHeight - 24) / height,
-      1,
-    );
-    anchorRef.current = { cx: 0, cy: 0, ax: 0, ay: 0 };
-    setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale)));
-  }, [height, width]);
 
   function selectNode(id: EvidenceTaskId) {
     setFollowLive(false);
@@ -258,6 +279,7 @@ export function InvestigationGraph({
         onPointerDown={(event) => {
           const target = event.target;
           if (target instanceof Element && target.closest(".investigation-graph-node")) return;
+          autoFitRef.current = false;
           pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
           if (pointersRef.current.size === 2) {
             pinchRef.current = {
@@ -328,7 +350,11 @@ export function InvestigationGraph({
               {COLUMN_LABELS.map((label, column) => (
                 <span
                   key={label}
-                  style={{ left: PAD_X + column * COLUMN_WIDTH, width: NODE_WIDTH }}
+                  style={{
+                    left: PAD_X + column * COLUMN_WIDTH,
+                    top: Math.max(8, (columnLabelTops.get(column) ?? PAD_Y) - 20),
+                    width: NODE_WIDTH,
+                  }}
                 >
                   {label}
                 </span>
@@ -385,7 +411,7 @@ export function InvestigationGraph({
                   </span>
                   <strong>{node.title}</strong>
                   <span className="investigation-graph-body">
-                    {node.summary ? (
+                    {getThumbnail(job.id, node, columns, research, tables) ?? (node.summary ? (
                       node.summary
                     ) : node.methods.length ? (
                       <span className="investigation-graph-methods">
@@ -395,10 +421,14 @@ export function InvestigationGraph({
                       </span>
                     ) : (
                       "No output recorded yet"
-                    )}
+                    ))}
                   </span>
                   <span className="investigation-graph-footer">
-                    <span>◆ {node.outputs} outputs</span>
+                    {node.outputs > 0 ? (
+                      <span>
+                        ◆ {node.outputs} output{node.outputs === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
                     <time dateTime={node.updatedAt ?? undefined}>
                       {node.updatedAt ? formatTime(node.updatedAt) : "—"}
                     </time>
@@ -421,7 +451,7 @@ function buildNodes(
 ): GraphNode[] {
   const planMatches = new Map<EvidenceTaskId, ResearchTask>();
   for (const task of tasks) {
-    const planTask = (research?.plan?.tasks ?? []).find((candidate) => matchesPlanTask(task, candidate));
+    const planTask = matchingResearchTask(task, research);
     if (planTask) planMatches.set(task.id, planTask);
   }
 
@@ -438,16 +468,17 @@ function buildNodes(
     id: "overview",
     title: "Investigation objective",
     shortTitle: "Objective",
-    capability: "Request",
+    capability: labelCapability("request"),
     summary: job.objective,
     methods: [],
     outputs: 0,
+    artifacts: [],
     updatedAt: job.updated_at,
     status: job.status === "failed" ? "FAILED" : working ? "RUNNING" : "COMPLETED",
     column: 0,
     lane: 0,
   };
-  const contentTasks = tasks.filter((task) => task.artifacts.length > 0 || Boolean(task.summary) || planMatches.has(task.id));
+  const contentTasks = visibleEvidenceTasks(tasks, research);
   const nodes = [
     objective,
     ...contentTasks.map((task): GraphNode => {
@@ -457,10 +488,11 @@ function buildNodes(
         id: task.id,
         title: task.title,
         shortTitle: task.shortTitle,
-        capability: planTask?.capability ?? task.shortTitle,
+        capability: labelCapability(EVIDENCE_TASK_CAPABILITIES[task.id]),
         summary: task.summary,
         methods: planTask?.methods ?? [],
         outputs: task.artifacts.length,
+        artifacts: task.artifacts,
         updatedAt: task.updatedAt ?? (task.artifacts.length || planTask ? job.updated_at : null),
         status,
         column: DEPENDENCIES[task.id].column,
@@ -478,14 +510,6 @@ function buildNodes(
     lanes.set(node.column, lane + 1);
   }
   return nodes;
-}
-
-function matchesPlanTask(task: EvidenceTask, planTask: ResearchTask): boolean {
-  if (planTask.output_files.some((file) => task.artifacts.some((artifact) => artifact.filename === file))) {
-    return true;
-  }
-  const capability = planTask.capability.toLowerCase();
-  return PLAN_CAPABILITY_MATCHES[task.id].some((term) => capability.includes(term));
 }
 
 function deriveStatus(
@@ -557,6 +581,80 @@ function nodeX(node: GraphNode): number {
 
 function nodeY(node: GraphNode): number {
   return PAD_Y + node.lane * ROW_HEIGHT;
+}
+
+function getThumbnail(
+  jobId: string,
+  node: GraphNode,
+  columns: ConservationColumn[],
+  research: ResearchWorkspace | null,
+  tables: GraphTable[],
+): ReactNode {
+  const image = node.artifacts.find((artifact) => /\.(png|jpe?g|webp|svg)$/i.test(artifact.filename));
+  if (image) {
+    return (
+      <span className="investigation-graph-thumb">
+        <ArtifactImage jobId={jobId} filename={image.filename} alt="" />
+      </span>
+    );
+  }
+  const values = node.id === "conservation"
+    ? columns.flatMap((column) =>
+        typeof column.conservation === "number" && Number.isFinite(column.conservation)
+          ? [column.conservation]
+          : [],
+      )
+    : node.id === "simulation"
+      ? simulationValues(research)
+      : tableValues(node, tables);
+  return values.length >= 2 ? (
+    <span className="investigation-graph-thumb">
+      <Sparkline values={values} />
+    </span>
+  ) : null;
+}
+
+function simulationValues(research: ResearchWorkspace | null): number[] {
+  return (research?.simulations?.runs ?? []).flatMap((run) =>
+    run.metrics.flatMap((metric) => {
+      if (typeof metric.value === "number" && Number.isFinite(metric.value)) return [metric.value];
+      if (typeof metric.value !== "string" || !metric.value.trim()) return [];
+      const value = Number(metric.value);
+      return Number.isFinite(value) ? [value] : [];
+    }),
+  );
+}
+
+function tableValues(node: GraphNode, tables: GraphTable[]): number[] {
+  return tables
+    .filter((table) => node.artifacts.some((artifact) => artifact.filename === table.filename))
+    .flatMap((table) =>
+      table.rows.slice(1).flatMap((row) =>
+        row.flatMap((cell) => {
+          if (!cell.trim()) return [];
+          const value = Number(cell);
+          return Number.isFinite(value) ? [value] : [];
+        }),
+      ),
+    );
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min || 1;
+  const points = values
+    .map((value, index) => {
+      const x = values.length === 1 ? 100 : (index / (values.length - 1)) * 192 + 4;
+      const y = 44 - ((value - min) / spread) * 36;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg className="investigation-graph-sparkline" viewBox="0 0 200 48" aria-hidden="true">
+      <polyline points={points} />
+    </svg>
+  );
 }
 
 function pointerDistance(pointers: Map<number, PointerPoint>): number {

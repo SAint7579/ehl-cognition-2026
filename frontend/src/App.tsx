@@ -499,6 +499,8 @@ export function App() {
             job={job}
             working={working}
             research={research}
+            columns={columns}
+            tables={tables}
             selected={selectedEvidenceTask}
             onSelect={setSelectedEvidenceTask}
           />
