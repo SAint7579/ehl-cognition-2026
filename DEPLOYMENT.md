@@ -84,6 +84,10 @@ artifacts.
 ## Supabase setup
 
 1. Create a Supabase project and enable email/password authentication.
+   If the project keeps **Confirm email** enabled, new users must confirm their
+   address before sign-in will succeed; configure SMTP and the confirmation flow
+   or disable that setting for a trusted internal deployment. Signup requests
+   are also subject to Supabase's email-send rate limits.
 2. Apply `supabase/migrations/20260823010000_research_workspace.sql` with the
    Supabase SQL editor or the Supabase CLI:
 
