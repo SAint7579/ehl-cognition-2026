@@ -83,6 +83,7 @@ def test_mocked_supabase_rest_storage_hydration_and_download(
         "investigation_messages": [],
         "investigation_events": [],
         "investigation_artifacts": [],
+        "research_results": [],
     }
 
     def request(

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator, Callable
 
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.app import executor
 from backend.app.artifacts import artifact_path, list_artifacts, media_type
 from backend.app.chatfilter import visible_messages
 from backend.app.devin import normalize_session_ref
@@ -23,7 +25,7 @@ from backend.app.executor import (
     run_job,
     sync_job,
 )
-from backend.app.models import Job, JobCreate, JobStatus, MessageCreate, Speaker
+from backend.app.models import Job, JobCreate, JobStatus, MessageCreate, ProtocolInfo, Speaker
 from backend.app.research import (
     CapabilityInfo,
     ResearchWorkspace,
@@ -31,6 +33,7 @@ from backend.app.research import (
     load_workspace,
 )
 from backend.app.settings import (
+    env_value,
     missing_devin_settings,
     settings,
     snapshot_configured,
@@ -38,6 +41,10 @@ from backend.app.settings import (
 )
 from backend.app.store import new_message, store
 from backend.app.supabase import supabase
+
+
+_protocol_cache: tuple[float, list[dict[str, object]]] | None = None
+PROTOCOL_CACHE_SECONDS = 30.0
 
 
 @asynccontextmanager
@@ -105,17 +112,41 @@ def list_capabilities() -> list[CapabilityInfo]:
     return catalog_response()
 
 
+@app.get("/api/protocols", response_model=list[ProtocolInfo])
+def list_protocols(user_id: str | None = Depends(authenticated_user)) -> list[ProtocolInfo]:
+    del user_id
+    return [_protocol_info(item) for item in _discover_playbooks()]
+
+
 @app.post("/api/jobs", response_model=Job, response_model_exclude=JOB_PUBLIC)
 def create_job(
     body: JobCreate,
     user_id: str | None = Depends(authenticated_user),
 ) -> Job:
+    selected_id = body.playbook_id or env_value("DEVIN_PLAYBOOK_ID") or None
+    selected_title: str | None = None
+    if body.playbook_id:
+        matching = next(
+            (item for item in _discover_playbooks() if item.get("playbook_id") == body.playbook_id),
+            None,
+        )
+        if matching is None:
+            raise HTTPException(400, "unknown Devin playbook id")
+        selected_title = str(matching.get("title") or "") or None
+    elif selected_id:
+        matching = next(
+            (item for item in _discover_playbooks() if item.get("playbook_id") == selected_id),
+            None,
+        )
+        selected_title = str(matching.get("title") or "") or None if matching else None
     job = store.create(
         body.objective,
         body.title,
         body.include_structure,
         body.capabilities,
         user_id,
+        selected_id,
+        selected_title,
     )
     if body.devin_session_id:
         session_id, session_url = normalize_session_ref(body.devin_session_id)
@@ -248,4 +279,34 @@ def _public_job(job: Job) -> Job:
             "messages": visible_messages(job.messages),
             "artifacts": list(artifacts.values()),
         }
+    )
+
+
+def _discover_playbooks() -> list[dict[str, object]]:
+    global _protocol_cache
+    now = time.monotonic()
+    if _protocol_cache and now - _protocol_cache[0] < PROTOCOL_CACHE_SECONDS:
+        return _protocol_cache[1]
+    try:
+        raw = executor.get_client().list_playbooks()
+    except Exception:
+        raw = []
+    _protocol_cache = (
+        now,
+        [
+            item
+            for item in raw
+            if isinstance(item, dict)
+            and isinstance(item.get("playbook_id"), str)
+            and isinstance(item.get("title"), str)
+        ],
+    )
+    return _protocol_cache[1]
+
+
+def _protocol_info(item: dict[str, object]) -> ProtocolInfo:
+    return ProtocolInfo(
+        id=str(item["playbook_id"]),
+        title=str(item["title"]),
+        has_structured_output_schema=isinstance(item.get("structured_output_schema"), dict),
     )

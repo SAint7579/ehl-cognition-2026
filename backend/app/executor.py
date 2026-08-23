@@ -15,6 +15,7 @@ from backend.app.chatfilter import clean_body, is_internal
 from backend.app.devin import DevinClient, DevinError, SessionClient, normalize_session_ref
 from backend.app.models import ArtifactInfo, JobStatus, Speaker
 from backend.app.prompt import follow_up_prompt, investigation_prompt
+from backend.app.research import validate_synthesis
 from backend.app.settings import settings
 from backend.app.store import new_event, new_message, store
 from backend.app.supabase import supabase
@@ -139,9 +140,37 @@ def run_job(
             _finish_from_session(job_id, session_client, session_id, sleep, now, wait=False)
             return
         store.add_event(job_id, new_event("job.started", "Opening Devin Cloud sandbox", "sandbox"))
+        playbook_attached = False
+        if job.playbook_id:
+            playbook = _selected_playbook(session_client, job.playbook_id)
+            if playbook is None:
+                raise DevinError(f"Devin playbook is no longer available: {job.playbook_id}")
+            playbook_attached = True
+            if job.playbook_title != playbook.get("title"):
+                store.update(
+                    job_id,
+                    playbook_title=str(playbook.get("title") or "") or None,
+                )
+            protocol_body = playbook.get("body")
+            if isinstance(protocol_body, str) and protocol_body.strip():
+                _write_artifact(
+                    job_id,
+                    job_dir(job_id),
+                    "protocol.md",
+                    protocol_body.encode("utf-8"),
+                    {},
+                )
+            else:
+                _record_validation_error(
+                    job_id,
+                    "protocol.md",
+                    "The selected Devin playbook did not provide a non-empty body; "
+                    "the provenance snapshot was skipped.",
+                )
         session = session_client.create_session(
-            investigation_prompt(job.objective, job.capabilities),
+            investigation_prompt(job.objective, job.capabilities, playbook_attached),
             job.title,
+            job.playbook_id,
         )
         session_id = str(session.get("session_id") or "")
         session_url = str(session.get("url") or "")
@@ -685,7 +714,26 @@ def _harvest(
             continue
         known_bytes = _write_artifact(job_id, out, basename, data, known_bytes)
     payload = session.get("structured_output")
+    structured_synthesis_valid = False
     if isinstance(payload, dict):
+        job = store.get(job_id)
+        objective = job.objective if job is not None else ""
+        try:
+            synthesis = validate_synthesis(payload, objective)
+        except Exception as error:
+            _record_validation_error(job_id, "synthesis.json", str(error))
+        else:
+            structured_synthesis_valid = True
+            synthesis_path = out / "synthesis.json"
+            if not _valid_synthesis_file(synthesis_path, objective):
+                known_bytes = _write_artifact(
+                    job_id,
+                    out,
+                    "synthesis.json",
+                    json.dumps(synthesis.model_dump(mode="json")).encode("utf-8"),
+                    known_bytes,
+                )
+    if isinstance(payload, dict) and not structured_synthesis_valid:
         for key, value in payload.items():
             basename = Path(str(key)).name
             if not is_allowed_artifact(basename):
@@ -708,6 +756,47 @@ def _harvest(
     if changed:
         store.update(job_id, artifacts=artifacts, limitations=limitations)
     return known_bytes
+
+
+def _selected_playbook(client: SessionClient, playbook_id: str) -> dict[str, Any] | None:
+    for playbook in client.list_playbooks():
+        if str(playbook.get("playbook_id") or "") == playbook_id:
+            body = playbook.get("body")
+            if not isinstance(body, str) or not body.strip():
+                try:
+                    fetched = client.get_playbook(playbook_id)
+                except Exception:
+                    fetched = None
+                if isinstance(fetched, dict):
+                    return {**playbook, **fetched}
+            return playbook
+    return None
+
+
+def _valid_synthesis_file(path: Path, objective: str) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        validate_synthesis(json.loads(path.read_text(encoding="utf-8")), objective)
+    except Exception:
+        return False
+    return True
+
+
+def _record_validation_error(job_id: str, filename: str, error: str) -> None:
+    path = job_dir(job_id) / ".validation_errors.json"
+    errors: dict[str, str] = {}
+    if path.is_file():
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                errors = {str(key): str(item) for key, item in value.items()}
+        except (json.JSONDecodeError, OSError):
+            pass
+    errors[filename] = error
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(errors, indent=2), encoding="utf-8")
+    supabase.persist_validation_error(job_id, filename, error)
 
 
 def _remote_size(item: dict[str, Any]) -> int | None:

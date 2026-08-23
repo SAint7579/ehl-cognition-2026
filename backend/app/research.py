@@ -95,6 +95,11 @@ class ResearchSynthesis(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+def validate_synthesis(payload: object, objective: str = "") -> ResearchSynthesis:
+    normalized = _normalize_synthesis(payload, objective)
+    return ResearchSynthesis.model_validate(normalized)
+
+
 class SimulationMetric(BaseModel):
     name: str = Field(min_length=1)
     value: JsonScalar
@@ -145,6 +150,14 @@ def load_workspace(
 ) -> ResearchWorkspace:
     directory = job_dir(job_id)
     errors: dict[str, str] = {}
+    validation_path = directory / ".validation_errors.json"
+    if validation_path.is_file():
+        try:
+            value = json.loads(validation_path.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                errors.update({str(key): str(item) for key, item in value.items()})
+        except (json.JSONDecodeError, OSError):
+            pass
     plan, plan_filename = _load_first(
         _artifact_candidates(directory, "plan", ("research_plan.json",)),
         ResearchPlan,
@@ -214,8 +227,7 @@ def _load_synthesis(
     for path in _artifact_candidates(directory, "synthesis", ("synthesis.json",)):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            normalized = _normalize_synthesis(payload, objective)
-            return ResearchSynthesis.model_validate(normalized), path.name
+            return validate_synthesis(payload, objective), path.name
         except (json.JSONDecodeError, ValidationError, ValueError) as error:
             errors[path.name] = str(error)
     return None, None

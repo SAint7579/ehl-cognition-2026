@@ -153,6 +153,11 @@ def capability_prompt(capabilities: list[ResearchCapability]) -> str:
 def artifact_descriptor(filename: str) -> ArtifactDescriptor:
     name = filename.lower()
     known = {
+        "protocol.md": ArtifactDescriptor(
+            "plan",
+            "Protocol used for this investigation",
+            "The Devin laboratory protocol attached to this investigation at launch.",
+        ),
         "research_plan.json": ArtifactDescriptor(
             "plan",
             "Research plan",

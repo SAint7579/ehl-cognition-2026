@@ -7,6 +7,7 @@ import type {
   JsonValue,
   ResidueAnnotation,
   ResearchWorkspace,
+  Protocol,
   StructureSummary,
 } from "./types";
 import { getSession } from "./auth";
@@ -44,12 +45,22 @@ export function listJobs(): Promise<Job[]> {
   ).then((r) => parse<Job[]>(r));
 }
 
-export async function createJob(objective: string): Promise<Job> {
+export function listProtocols(): Promise<Protocol[]> {
+  return requestHeaders().then((headers) =>
+    fetch(apiUrl("/api/protocols"), { headers }),
+  ).then((r) => parse<Protocol[]>(r));
+}
+
+export async function createJob(objective: string, playbookId?: string): Promise<Job> {
   const headers = await requestHeaders({ "Content-Type": "application/json" });
   return parse<Job>(await fetch(apiUrl("/api/jobs"), {
     method: "POST",
     headers,
-    body: JSON.stringify({ objective, include_structure: true }),
+    body: JSON.stringify({
+      objective,
+      include_structure: true,
+      ...(playbookId ? { playbook_id: playbookId } : {}),
+    }),
   }));
 }
 
